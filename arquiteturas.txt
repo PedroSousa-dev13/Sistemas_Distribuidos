@@ -1,0 +1,109 @@
+## Análise de Arquiteturas — Orientada para Nota Alta
+
+---
+
+### Arquitetura A — Ligações Persistentes (Base Mínima)
+
+Cada Sensor mantém uma ligação TCP permanente à Gateway. Gateway mantém ligação TCP permanente ao Servidor.
+
+Vantagens:
+- Simples de implementar
+- Demonstra sockets, threads e mutexes
+
+Limitação académica:
+- É o mínimo esperado. A maioria dos alunos entrega isto.
+- Não demonstra domínio além do básico.
+
+Nota estimada: Suficiente / Bom
+
+---
+
+### Arquitetura B — Ligações por Pedido (Não Recomendada)
+
+Nova ligação TCP por cada mensagem enviada.
+
+Limitação:
+- Overhead desnecessário
+- Heartbeat mais complexo de gerir
+- Não acrescenta valor académico
+
+Nota estimada: Suficiente (mas com penalizações de design)
+
+---
+
+### Arquitetura C — Gateway com Fila de Mensagens (Complexidade Alta)
+
+Gateway com fila interna produtor-consumidor completa.
+
+Vantagens:
+- Tolerante a falhas do Servidor
+- Desacoplamento total entre camadas
+
+Limitação:
+- Risco de over-engineering para o prazo disponível
+- Difícil de testar e depurar em contexto académico
+
+Nota estimada: Muito Bom / Excelente (se bem executado)
+
+---
+
+### Arquitetura Recomendada — A+ (Híbrida para Nota Alta)
+
+Base: Arquitetura A (ligações persistentes)
+Extra: Fila de mensagens thread-safe na Gateway (elemento da C)
+
+Fluxo:
+
+  SENSOR
+    │
+    │ TCP persistente (1 thread por sensor)
+    ▼
+  GATEWAY
+    │
+    ├─ Thread de receção por Sensor
+    │     └─► valida CSV (mutex) → coloca na Fila interna
+    │
+    ├─ Fila interna thread-safe (BlockingCollection / Queue + Mutex)
+    │
+    └─ Thread consumidora única
+          └─► encaminha para SERVIDOR via TCP persistente
+    │
+    │ TCP persistente
+    ▼
+  SERVIDOR
+    │
+    ├─ Thread por Gateway ligada
+    └─► escreve em ficheiro por tipo de dado (mutex por ficheiro)
+
+---
+
+### O que esta arquitetura demonstra (e porque vale mais nota)
+
+1. Sockets TCP com ligações persistentes — req. base cumprido
+2. Modelo 1 thread por ligação — concorrência demonstrada
+3. Mutex no CSV da Gateway — sincronização demonstrada
+4. Padrão Produtor-Consumidor na Gateway — nível acima do mínimo
+5. Mutex por ficheiro no Servidor — granularidade fina de sincronização
+6. Tolerância a indisponibilidade temporária do Servidor — robustez
+7. Separação clara de responsabilidades entre camadas — bom design
+
+---
+
+### Componentes C# a usar
+
+- System.Net.Sockets.TcpListener / TcpClient — comunicação
+- System.Threading.Thread — concorrência
+- System.Threading.Mutex ou lock() — exclusão mútua
+- System.Collections.Concurrent.BlockingCollection<T> — fila thread-safe (produtor-consumidor)
+- System.IO.StreamReader / StreamWriter — persistência em ficheiros
+
+---
+
+### Resumo de Decisão
+
+| Arquitetura | Complexidade | Nota Estimada     | Recomendada? |
+|-------------|--------------|-------------------|--------------|
+| A pura      | Baixa        | Suficiente/Bom    | Não          |
+| B           | Média        | Suficiente        | Não          |
+| C pura      | Alta         | Excelente (risco) | Não          |
+| A+ Híbrida  | Média-Alta   | Bom/Muito Bom     | SIM          |
