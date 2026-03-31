@@ -15,11 +15,11 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="FsCheck" Version="2.16.6" />
-    <PackageReference Include="FsCheck.Xunit" Version="2.16.6" />
+    <PackageReference Include="Moq" Version="4.20.72" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Sensor\Sensor.csproj" />
     <ProjectReference Include="..\..\src\SharedProtocol\SharedProtocol.csproj" />
   </ItemGroup>
 

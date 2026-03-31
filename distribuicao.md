@@ -7,14 +7,14 @@
 > Deve ser concluído antes de qualquer desenvolvimento individual.
 
 ### Definição do Protocolo de Mensagens
-- [ ] Definir estrutura base da mensagem (campos: `tipo`, `sensor_id`, `payload`, `timestamp`)
-- [ ] Definir todos os tipos de mensagem: `REGISTER`, `REGISTER_OK`, `REGISTER_ERR`, `DATA`, `DATA_ACK`, `HEARTBEAT`, `HEARTBEAT_ACK`, `ERROR`
-- [ ] Implementar classe/struct `Mensagem` em C#
-- [ ] Implementar serialização para string (ex: JSON ou formato custom delimitado)
-- [ ] Implementar deserialização de string para objeto `Mensagem`
-- [ ] Testar round-trip: serializar → deserializar → objeto igual ao original
-- [ ] Definir porto padrão da Gateway (ex: 5000) e do Servidor (ex: 6000)
-- [ ] Documentar o protocolo num ficheiro `PROTOCOLO.md`
+- [x] Definir estrutura base da mensagem (campos: `tipo`, `sensor_id`, `payload`, `timestamp`)
+- [x] Definir todos os tipos de mensagem: `REGISTER`, `REGISTER_OK`, `REGISTER_ERR`, `DATA`, `DATA_ACK`, `HEARTBEAT`, `HEARTBEAT_ACK`, `ERROR`
+- [x] Implementar classe/struct `Mensagem` em C#
+- [x] Implementar serialização para string (ex: JSON ou formato custom delimitado)
+- [x] Implementar deserialização de string para objeto `Mensagem`
+- [x] Testar round-trip: serializar → deserializar → objeto igual ao original
+- [x] Definir porto padrão da Gateway (ex: 5000) e do Servidor (ex: 6000)
+- [x] Documentar o protocolo num ficheiro `PROTOCOLO.md`
 
 ---
 
@@ -22,58 +22,58 @@
 
 
 ### 1.1 Arranque e Configuração
-- [ ] Aceitar endereço IP da Gateway como argumento de linha de comandos (`args[0]`)
-- [ ] Aceitar porto da Gateway como argumento de linha de comandos (`args[1]`)
-- [ ] Aceitar ID do sensor como argumento de linha de comandos (`args[2]`)
-- [ ] Validar que os argumentos estão presentes e são válidos
-- [ ] Apresentar mensagem de erro descritiva se argumentos inválidos e terminar
-- [ ] Apresentar na consola o IP e porto da Gateway a que se vai ligar
+- [x] Aceitar endereço IP da Gateway como argumento de linha de comandos (`args[0]`)
+- [x] Aceitar porto da Gateway como argumento de linha de comandos (`args[1]`)
+- [x] Aceitar ID do sensor como argumento de linha de comandos (`args[2]`)
+- [x] Validar que os argumentos estão presentes e são válidos
+- [x] Apresentar mensagem de erro descritiva se argumentos inválidos e terminar
+- [x] Apresentar na consola o IP e porto da Gateway a que se vai ligar
 
 ### 1.2 Ligação TCP à Gateway
-- [ ] Criar `TcpClient` e estabelecer ligação ao IP:Porto da Gateway
-- [ ] Tratar exceção se a Gateway não estiver disponível (mensagem de erro + terminar)
-- [ ] Obter `NetworkStream` para leitura e escrita
-- [ ] Manter a ligação TCP aberta durante toda a sessão
+- [x] Criar `TcpClient` e estabelecer ligação ao IP:Porto da Gateway
+- [x] Tratar exceção se a Gateway não estiver disponível (mensagem de erro + terminar)
+- [x] Obter `NetworkStream` para leitura e escrita
+- [x] Manter a ligação TCP aberta durante toda a sessão
 
 ### 1.3 Registo na Gateway
-- [ ] Construir mensagem `REGISTER` com `sensor_id` e lista de tipos de dados suportados
-- [ ] Enviar mensagem `REGISTER` pela ligação TCP
-- [ ] Aguardar resposta da Gateway
-- [ ] Se resposta for `REGISTER_OK`: avançar para o menu principal
-- [ ] Se resposta for `REGISTER_ERR` com código `SENSOR_NOT_FOUND`: apresentar erro e terminar
-- [ ] Se resposta for `REGISTER_ERR` com código `SENSOR_INACTIVE`: apresentar erro e terminar
-- [ ] Tratar timeout de resposta (sem resposta em X segundos → terminar)
+- [x] Construir mensagem `REGISTER` com `sensor_id` e lista de tipos de dados suportados
+- [x] Enviar mensagem `REGISTER` pela ligação TCP
+- [x] Aguardar resposta da Gateway
+- [x] Se resposta for `REGISTER_OK`: avançar para o menu principal
+- [x] Se resposta for `REGISTER_ERR` com código `SENSOR_NOT_FOUND`: apresentar erro e terminar
+- [x] Se resposta for `REGISTER_ERR` com código `SENSOR_INACTIVE`: apresentar erro e terminar
+- [x] Tratar timeout de resposta (sem resposta em X segundos → terminar)
 
 ### 1.4 Interface de Texto (Menu Principal)
-- [ ] Apresentar menu com opções de tipos de dados disponíveis para o sensor
-- [ ] Opção: enviar medição de temperatura
-- [ ] Opção: enviar medição de humidade
-- [ ] Opção: enviar medição de qualidade do ar
-- [ ] Opção: enviar medição de ruído
-- [ ] Opção: enviar medição de PM2.5
-- [ ] Opção: enviar medição de PM10
-- [ ] Opção: enviar medição de luminosidade
-- [ ] Opção: enviar imagem/vídeo (pode ser simulado com string)
-- [ ] Opção: sair (fechar ligação e terminar)
-- [ ] Validar input do utilizador (tipo e valor da medição)
-- [ ] Construir mensagem `DATA` com `sensor_id`, `tipo_dado`, `valor` e `timestamp`
-- [ ] Enviar mensagem `DATA` pela ligação TCP
-- [ ] Aguardar `DATA_ACK` da Gateway
-- [ ] Apresentar confirmação de envio ao utilizador após receber ACK
+- [x] Apresentar menu com opções de tipos de dados disponíveis para o sensor
+- [x] Opção: enviar medição de temperatura
+- [x] Opção: enviar medição de humidade
+- [x] Opção: enviar medição de qualidade do ar
+- [x] Opção: enviar medição de ruído
+- [x] Opção: enviar medição de PM2.5
+- [x] Opção: enviar medição de PM10
+- [x] Opção: enviar medição de luminosidade
+- [x] Opção: enviar imagem/vídeo (pode ser simulado com string)
+- [x] Opção: sair (fechar ligação e terminar)
+- [x] Validar input do utilizador (tipo e valor da medição)
+- [x] Construir mensagem `DATA` com `sensor_id`, `tipo_dado`, `valor` e `timestamp`
+- [x] Enviar mensagem `DATA` pela ligação TCP
+- [x] Aguardar `DATA_ACK` da Gateway
+- [x] Apresentar confirmação de envio ao utilizador após receber ACK
 
 ### 1.5 Thread de Heartbeat
-- [ ] Criar thread dedicada para envio de heartbeats (separada da thread do menu)
-- [ ] Enviar mensagem `HEARTBEAT` com `sensor_id` e `timestamp` a cada 20 segundos
-- [ ] Aguardar `HEARTBEAT_ACK` da Gateway
-- [ ] Se não receber ACK em X segundos: registar aviso na consola
-- [ ] Thread de heartbeat deve terminar quando o sensor fechar a ligação
-- [ ] Garantir que heartbeat e envio de dados não colidem (sincronização se necessário)
+- [x] Criar thread dedicada para envio de heartbeats (separada da thread do menu)
+- [x] Enviar mensagem `HEARTBEAT` com `sensor_id` e `timestamp` a cada 20 segundos
+- [x] Aguardar `HEARTBEAT_ACK` da Gateway
+- [x] Se não receber ACK em X segundos: registar aviso na consola
+- [x] Thread de heartbeat deve terminar quando o sensor fechar a ligação
+- [x] Garantir que heartbeat e envio de dados não colidem (sincronização se necessário)
 
 ### 1.6 Tratamento de Erros e Desligação
-- [ ] Tratar receção de mensagem `ERROR` da Gateway
-- [ ] Tratar perda de ligação TCP (exceção de socket)
-- [ ] Fechar `NetworkStream` e `TcpClient` ao terminar
-- [ ] Garantir que a thread de heartbeat termina antes de fechar o programa
+- [x] Tratar receção de mensagem `ERROR` da Gateway
+- [x] Tratar perda de ligação TCP (exceção de socket)
+- [x] Fechar `NetworkStream` e `TcpClient` ao terminar
+- [x] Garantir que a thread de heartbeat termina antes de fechar o programa
 
 ---
 
@@ -210,7 +210,7 @@
 
 ## Pontos de Integração (Todos)
 
-- [ ] Fase 0 concluída antes de desenvolvimento individual
+- [x] Fase 0 concluída antes de desenvolvimento individual
 - [ ] Teste de ligação Sensor → Gateway com mensagem REGISTER
 - [ ] Teste de envio de DATA: Sensor → Gateway → Servidor
 - [ ] Teste de heartbeat: Sensor → Gateway (atualização CSV)
