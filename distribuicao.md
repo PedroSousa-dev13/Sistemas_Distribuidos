@@ -80,75 +80,75 @@
 ## ALUNO 2 — GATEWAY
 
 ### 2.1 Arranque e Configuração
-- [ ] Aceitar porto de escuta para sensores como argumento (`args[0]`)
-- [ ] Aceitar IP:Porto do Servidor como argumento (`args[1]`)
-- [ ] Aceitar caminho do ficheiro CSV como argumento (`args[2]`)
-- [ ] Apresentar na consola o porto em que está a escutar
-- [ ] Carregar CSV de sensores para memória no arranque
+- [x] Aceitar porto de escuta para sensores como argumento (`args[0]`)
+- [x] Aceitar IP:Porto do Servidor como argumento (`args[1]`)
+- [x] Aceitar caminho do ficheiro CSV como argumento (`args[2]`)
+- [x] Apresentar na consola o porto em que está a escutar
+- [x] Carregar CSV de sensores para memória no arranque
 
 ### 2.2 Gestão do Ficheiro CSV
-- [ ] Ler ficheiro CSV com formato `sensor_id:estado:zona:[tipos_dados]:last_sync`
-- [ ] Parsear cada linha para estrutura de dados em memória (ex: `Dictionary<string, SensorInfo>`)
-- [ ] Se ficheiro CSV não existir: criar ficheiro vazio e registar aviso
-- [ ] Implementar `Mutex` para proteger leitura/escrita do CSV
-- [ ] Implementar método `LerCSV()` com lock do mutex
-- [ ] Implementar método `EscreverCSV()` com lock do mutex
-- [ ] Implementar método `AtualizarEstado(sensor_id, novo_estado)` com lock
-- [ ] Implementar método `AtualizarLastSync(sensor_id, timestamp)` com lock
-- [ ] Persistir alterações ao CSV imediatamente após cada modificação
+- [x] Ler ficheiro CSV com formato `sensor_id:estado:zona:[tipos_dados]:last_sync`
+- [x] Parsear cada linha para estrutura de dados em memória (ex: `Dictionary<string, SensorInfo>`)
+- [x] Se ficheiro CSV não existir: criar ficheiro vazio e registar aviso
+- [x] Implementar `Mutex` para proteger leitura/escrita do CSV
+- [x] Implementar método `LerCSV()` com lock do mutex
+- [x] Implementar método `EscreverCSV()` com lock do mutex
+- [x] Implementar método `AtualizarEstado(sensor_id, novo_estado)` com lock
+- [x] Implementar método `AtualizarLastSync(sensor_id, timestamp)` com lock
+- [x] Persistir alterações ao CSV imediatamente após cada modificação
 
 ### 2.3 Atendimento de Sensores (Concorrência)
-- [ ] Criar `TcpListener` no porto de escuta configurado
-- [ ] Loop principal: aceitar novas ligações TCP de sensores
-- [ ] Para cada nova ligação: criar nova `Thread` dedicada
-- [ ] Thread de atendimento: gerir todo o ciclo de vida da ligação com aquele sensor
-- [ ] Suportar mínimo de 10 sensores em simultâneo
-- [ ] Libertar recursos da thread quando sensor desliga
+- [x] Criar `TcpListener` no porto de escuta configurado
+- [x] Loop principal: aceitar novas ligações TCP de sensores
+- [x] Para cada nova ligação: criar nova `Thread` dedicada
+- [x] Thread de atendimento: gerir todo o ciclo de vida da ligação com aquele sensor
+- [x] Suportar mínimo de 10 sensores em simultâneo
+- [x] Libertar recursos da thread quando sensor desliga
 
 ### 2.4 Processamento de Mensagens dos Sensores
-- [ ] Receber e parsear mensagem `REGISTER`
-- [ ] Validar `sensor_id` no CSV (existe?)
-- [ ] Validar estado do sensor no CSV (`ativo`?)
-- [ ] Se inválido: enviar `REGISTER_ERR` com código adequado
-- [ ] Se válido: enviar `REGISTER_OK`
-- [ ] Receber mensagem `DATA` de sensor registado e ativo
-- [ ] Se sensor não ativo: enviar `ERROR` com código `SENSOR_INACTIVE` e descartar
-- [ ] Se sensor ativo: colocar mensagem na fila interna (produtor)
-- [ ] Receber mensagem `HEARTBEAT`
-- [ ] Atualizar `last_sync` no CSV ao receber heartbeat
-- [ ] Enviar `HEARTBEAT_ACK` ao sensor
-- [ ] Tratar mensagens com formato inválido: responder com `ERROR` e descartar
+- [x] Receber e parsear mensagem `REGISTER`
+- [x] Validar `sensor_id` no CSV (existe?)
+- [x] Validar estado do sensor no CSV (`ativo`?)
+- [x] Se inválido: enviar `REGISTER_ERR` com código adequado
+- [x] Se válido: enviar `REGISTER_OK`
+- [x] Receber mensagem `DATA` de sensor registado e ativo
+- [x] Se sensor não ativo: enviar `ERROR` com código `SENSOR_INACTIVE` e descartar
+- [x] Se sensor ativo: colocar mensagem na fila interna (produtor)
+- [x] Receber mensagem `HEARTBEAT`
+- [x] Atualizar `last_sync` no CSV ao receber heartbeat
+- [x] Enviar `HEARTBEAT_ACK` ao sensor
+- [x] Tratar mensagens com formato inválido: responder com `ERROR` e descartar
 
 ### 2.5 Fila Interna Thread-Safe (Produtor-Consumidor)
-- [ ] Implementar `BlockingCollection<Mensagem>` como fila interna
-- [ ] Threads de receção (produtores) colocam mensagens `DATA` na fila
-- [ ] Criar thread consumidora única dedicada ao encaminhamento
-- [ ] Thread consumidora retira mensagens da fila e encaminha para o Servidor
-- [ ] Fila deve funcionar corretamente com múltiplos produtores simultâneos
-- [ ] Definir capacidade máxima da fila (ex: 100 mensagens)
+- [x] Implementar `BlockingCollection<Mensagem>` como fila interna
+- [x] Threads de receção (produtores) colocam mensagens `DATA` na fila
+- [x] Criar thread consumidora única dedicada ao encaminhamento
+- [x] Thread consumidora retira mensagens da fila e encaminha para o Servidor
+- [x] Fila deve funcionar corretamente com múltiplos produtores simultâneos
+- [x] Definir capacidade máxima da fila (ex: 100 mensagens)
 
 ### 2.6 Monitorização de Heartbeats (Timeout)
-- [ ] Criar thread de watchdog que verifica `last_sync` de todos os sensores
-- [ ] Se sensor não envia mensagem há mais de 60 segundos: marcar como `manutencao`
-- [ ] Persistir alteração de estado no CSV
-- [ ] Registar evento no ficheiro de log
+- [x] Criar thread de watchdog que verifica `last_sync` de todos os sensores
+- [x] Se sensor não envia mensagem há mais de 60 segundos: marcar como `manutencao`
+- [x] Persistir alteração de estado no CSV
+- [x] Registar evento no ficheiro de log
 
 ### 2.7 Ligação ao Servidor e Encaminhamento
-- [ ] Estabelecer ligação TCP persistente ao Servidor no arranque
-- [ ] Thread consumidora envia mensagens `DATA` da fila para o Servidor
-- [ ] Aguardar `DATA_ACK` do Servidor após cada envio
-- [ ] Registar ACK no ficheiro de log local
-- [ ] Se ligação ao Servidor falhar: registar erro no log e enviar `ERROR` ao sensor com `SERVER_UNAVAILABLE`
-- [ ] Tentar reconectar ao Servidor após falha (retry com intervalo)
+- [x] Estabelecer ligação TCP persistente ao Servidor no arranque
+- [x] Thread consumidora envia mensagens `DATA` da fila para o Servidor
+- [x] Aguardar `DATA_ACK` do Servidor após cada envio
+- [x] Registar ACK no ficheiro de log local
+- [x] Se ligação ao Servidor falhar: registar erro no log e enviar `ERROR` ao sensor com `SERVER_UNAVAILABLE`
+- [x] Tentar reconectar ao Servidor após falha (retry com intervalo)
 
 ### 2.8 Logging
-- [ ] Criar ficheiro de log `gateway.log`
-- [ ] Registar cada registo de sensor (aceite ou rejeitado)
-- [ ] Registar cada mensagem DATA recebida e encaminhada
-- [ ] Registar cada heartbeat recebido
-- [ ] Registar erros de ligação ao Servidor
-- [ ] Registar sensores marcados como `manutencao` por timeout
-- [ ] Proteger escrita no log com mutex
+- [x] Criar ficheiro de log `gateway.log`
+- [x] Registar cada registo de sensor (aceite ou rejeitado)
+- [x] Registar cada mensagem DATA recebida e encaminhada
+- [x] Registar cada heartbeat recebido
+- [x] Registar erros de ligação ao Servidor
+- [x] Registar sensores marcados como `manutencao` por timeout
+- [x] Proteger escrita no log com mutex
 
 ---
 
