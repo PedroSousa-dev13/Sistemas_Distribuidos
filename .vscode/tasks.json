@@ -1,0 +1,150 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-solution",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "SharedProtocol.sln", "-c", "Debug"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-sensor",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "src/Sensor/Sensor.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-gateway",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "src/Gateway/Gateway.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-sharedprotocol",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "src/SharedProtocol/SharedProtocol.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-tests",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "tests/SharedProtocol.Tests/SharedProtocol.Tests.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "build-tests-sensor",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "tests/Sensor.Tests/Sensor.Tests.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "run-sensor-local",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["run", "--project", "src/Sensor/Sensor.csproj", "--", "127.0.0.1", "5000", "sensor-01"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "run-gateway-local",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["run", "--project", "src/Gateway/Gateway.csproj", "--", "5000", "127.0.0.1:6000", "./sensores.csv"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "test-shared-protocol",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["test", "tests/SharedProtocol.Tests/SharedProtocol.Tests.csproj", "--logger", "console;verbosity=detailed"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "test-sensor",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["test", "tests/Sensor.Tests/Sensor.Tests.csproj", "--logger", "console;verbosity=detailed"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "test-all",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["test", "SharedProtocol.sln", "--logger", "console;verbosity=detailed"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "clean",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["clean", "SharedProtocol.sln"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
