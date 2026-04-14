@@ -166,7 +166,7 @@ class Program
 
         if (tipoDado == "imagem")
         {
-            valor = $"[imagem_simulada_{Guid.NewGuid():N}";
+            valor = $"[imagem_simulada_{Guid.NewGuid():N}]";
             Console.WriteLine($"Simulação de imagem: {valor}");
         }
         else

@@ -197,7 +197,10 @@ namespace Servidor
                 gatewayCountMutex.WaitOne();
                 try
                 {
-                    gatewayCount--;
+                    if (gatewayCount > 0)
+                    {
+                        gatewayCount--;
+                    }
                     Log($"🔌 Gateway desconectada ({gatewayId}) | Mensagens processadas: {mensagensRecebidas} | Total de gateways: {gatewayCount}");
                     if (gatewayCount > 0)
                     {

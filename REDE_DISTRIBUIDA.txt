@@ -1,0 +1,450 @@
+═══════════════════════════════════════════════════════════════════════════════
+            REDE DISTRIBUÍDA - IMPLEMENTAÇÃO EM MÚLTIPLOS COMPUTADORES
+═══════════════════════════════════════════════════════════════════════════════
+
+Este guia explica como configurar e executar o sistema IoT em múltiplos computadores
+na mesma rede local (WiFi/Ethernet), com dados correlacionados e sincronizados.
+
+---
+
+## 📋 ARQUITETURA DE REDE
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                          REDE LOCAL (192.168.x.x)                            │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                               │
+│  Computador A (192.168.1.100)      Computador B (192.168.1.101)              │
+│  ┌─────────────────────┐            ┌──────────────────────┐                 │
+│  │                     │            │                      │                 │
+│  │     SERVIDOR        │            │    GATEWAY + SENSOR  │                 │
+│  │  (Porta 6000)       │◄───────────┤   (Porta 5000+6000)  │                 │
+│  │                     │   TCP/IP   │                      │                 │
+│  │  • Persiste dados   │            │  • 1+ sensores       │                 │
+│  │  • 8 ficheiros      │            │  • Fila de msgs      │                 │
+│  │  • Thread-safe      │            │  • Heartbeat         │                 │
+│  └─────────────────────┘            └──────┬───────────────┘                 │
+│                                             │                                 │
+│  Computador C (192.168.1.102)              │                                 │
+│  ┌─────────────────────┐                   │                                 │
+│  │                     │                   │                                 │
+│  │    SENSOR           │───────────────────┘                                 │
+│  │  (Conecta a B)      │                                                     │
+│  │                     │                                                     │
+│  └─────────────────────┘                                                     │
+│                                                                               │
+│  Computador D (192.168.1.103)                                                │
+│  ┌─────────────────────┐                                                     │
+│  │                     │                                                     │
+│  │    SENSOR           │───────────────────┐                                 │
+│  │  (Conecta a B)      │                   │ (mesmo que C)                   │
+│  │                     │                   │                                 │
+│  └─────────────────────┘                   │                                 │
+│                        ┌────────────────────┘                                 │
+│                                                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔧 PASSO 1: DESCOBRIR IPS DOS COMPUTADORES
+
+### Windows:
+
+```powershell
+# Terminal 1 - Servidor (Computador A)
+ipconfig
+
+# Procure por: "IPv4 Address" → ex: 192.168.1.100
+```
+
+### Linux/Mac:
+
+```bash
+# Qualquer computador
+ipconfig
+# ou
+ip addr show
+# ou
+hostname -I
+```
+
+**Anotações (complete com seus IPs):**
+
+```
+Computador A (SERVIDOR):   IP = 192.168.1.___
+Computador B (GATEWAY):    IP = 192.168.1.___
+Computador C (SENSOR):     IP = 192.168.1.___
+Computador D (SENSOR):     IP = 192.168.1.___
+```
+
+---
+
+## 🚀 PASSO 2: PREPARAR OS COMPUTADORES
+
+### Todos os Computadores:
+
+1. Clone ou copie o repositório:
+   ```bash
+   git clone https://github.com/seu-usuario/Sistemas_Distribuidos.git
+   cd Sistemas_Distribuidos
+   ```
+
+2. Compile o projeto:
+   ```bash
+   dotnet build SharedProtocol.sln -c Debug
+   ```
+
+**Verificação:** Todos devem ter `Build succeeded`
+
+---
+
+## 📡 PASSO 3: CONFIGURAÇÃO E EXECUÇÃO
+
+### ETAPA 1: Iniciar SERVIDOR (Computador A - 192.168.1.100)
+
+**Terminal 1 - Computador A:**
+
+```bash
+dotnet run --project src/Servidor/Servidor.csproj -- 6000
+```
+
+**Saída esperada:**
+```
+╔════════════════════════════════════════╗
+║  SERVIDOR - Sistema IoT Distribuído    ║
+╚════════════════════════════════════════╝
+
+✅ SERVIDOR INICIADA COM SUCESSO!
+🔗 Aguardando conexões de gateways na porta 6000...
+```
+
+✅ **Deixe este terminal aberto!**
+
+---
+
+### ETAPA 2: Iniciar GATEWAY (Computador B - 192.168.1.101)
+
+**Terminal 1 - Computador B:**
+
+```bash
+# Substitua 192.168.1.100 pelo IP real do seu Computador A
+dotnet run --project src/Gateway/Gateway.csproj -- 5000 192.168.1.100:6000 ./sensores.csv
+```
+
+**Saída esperada:**
+```
+╔════════════════════════════════════════╗
+║  GATEWAY - Sistema IoT Distribuído     ║
+╚════════════════════════════════════════╝
+
+✅ GATEWAY INICIADA COM SUCESSO!
+🔗 Aguardando conexões de sensores na porta 5000...
+📡 Ligada ao servidor remoto (192.168.1.100:6000)
+```
+
+✅ **Deixe este terminal aberto!**
+
+**Confirmação no Servidor:**
+```
+[LOG] 2024-01-15T10:30:00.000Z: 📡 Gateway #1 conectada! (Total: 1)
+```
+
+---
+
+### ETAPA 3: Iniciar SENSORES (Computador C, D, E... - qualquer IP)
+
+**Terminal 1 - Computador C:**
+
+```bash
+# Substitua 192.168.1.101 pelo IP real do seu Computador B (GATEWAY)
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.101 5000 sensor-C1
+```
+
+**Terminal 2 - Computador C (outro Sensor, mesmo PC):**
+
+```bash
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.101 5000 sensor-C2
+```
+
+**Terminal 1 - Computador D:**
+
+```bash
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.101 5000 sensor-D1
+```
+
+**Saída esperada (cada Sensor):**
+```
+╔════════════════════════════════════════╗
+║    SENSOR - Sistema IoT Distribuído    ║
+╚════════════════════════════════════════╝
+
+[10:30:00] > Gateway: 192.168.1.101:5000
+[10:30:00] > Sensor ID: sensor-C1
+[10:30:01] ✓ Conectado com sucesso!
+[10:30:02] ✓ Sensor registado na Gateway.
+[10:30:21] ✓ Heartbeat enviado
+```
+
+---
+
+## 💾 PASSO 4: ENVIAR DADOS
+
+### De qualquer Sensor:
+
+**Menu:**
+```
+[1] Temperatura
+[2] Humidade
+[3] Qualidade do Ar
+[4] Ruído
+[5] PM2.5
+[6] PM10
+[7] Luminosidade
+[8] Imagem/Vídeo
+[0] Sair
+
+Opção: 1
+```
+
+**Introduza um valor:**
+```
+Introduza o valor de Temperatura: 23.5
+```
+
+✅ **Dados enviados!**
+
+---
+
+## 📊 VERIFICAR CORRELAÇÃO DE DADOS
+
+### No Computador A (SERVIDOR):
+
+**Terminal 2 - Computador A:**
+
+```powershell
+# Windows PowerShell
+Get-Content dados/temperatura.txt
+
+# Output esperado:
+# 2024-01-15T10:30:00.000Z|sensor-C1|23.5     ← de C
+# 2024-01-15T10:30:15.000Z|sensor-D1|24.2     ← de D
+# 2024-01-15T10:30:30.000Z|sensor-C2|23.7     ← de C
+```
+
+**Linux/Mac:**
+
+```bash
+# Terminal 2
+cat dados/temperatura.txt
+
+# Output esperado (igual ao acima)
+```
+
+**Ver quantos sensores diferentes:**
+
+```bash
+# Windows PowerShell
+(Get-Content dados/temperatura.txt | ForEach-Object { $_.Split('|')[1] } | Sort-Object -Unique)
+
+# Linux/Mac
+cut -d'|' -f2 dados/temperatura.txt | sort | uniq
+```
+
+✅ **Dados de TODOS os sensores, em um único ficheiro, sincronizados!**
+
+---
+
+## 🔥 EXEMPLO PRÁTICO COMPLETO
+
+### Cenário: 3 Computadores, 4 Sensores
+
+**Máquina 1 (IP: 192.168.1.10):**
+```bash
+dotnet run --project src/Servidor/Servidor.csproj -- 6000
+```
+
+**Máquina 2 (IP: 192.168.1.11):**
+```bash
+# Terminal 1
+dotnet run --project src/Gateway/Gateway.csproj -- 5000 192.168.1.10:6000 ./sensores.csv
+
+# Terminal 2 - Sensor local
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.11 5000 sensor-local-01
+
+# Terminal 3 - Sensor local
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.11 5000 sensor-local-02
+```
+
+**Máquina 3 (IP: 192.168.1.12):**
+```bash
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.11 5000 sensor-remoto-01
+```
+
+**Máquina 4 (IP: 192.168.1.13):**
+```bash
+dotnet run --project src/Sensor/Sensor.csproj -- 192.168.1.11 5000 sensor-remoto-02
+```
+
+**Resultado: Todos os sensores enviam para o servidor centralizado!**
+
+---
+
+## ⚠️ FIREWALL E PORTOS
+
+### Windows Firewall:
+
+```powershell
+# SERVIDOR (Máquina 1)
+New-NetFirewallRule -DisplayName "Servidor IoT" -Direction Inbound -LocalPort 6000 -Action Allow -Protocol TCP
+
+# GATEWAY (Máquina 2)
+New-NetFirewallRule -DisplayName "Gateway IoT" -Direction Inbound -LocalPort 5000 -Action Allow -Protocol TCP
+```
+
+### Linux (UFW):
+
+```bash
+# SERVIDOR
+sudo ufw allow 6000/tcp
+
+# GATEWAY
+sudo ufw allow 5000/tcp
+```
+
+---
+
+## 🔍 PROBLEMAS COMUNS
+
+### ❌ "Address already in use"
+
+**Solução Windows:**
+```powershell
+Get-Process -Id (Get-NetTCPConnection -LocalPort 6000 -ErrorAction SilentlyContinue).OwningProcess | Stop-Process -Force
+```
+
+**Solução Linux:**
+```bash
+sudo lsof -i :6000 | grep LISTEN | awk '{print $2}' | xargs kill -9
+```
+
+### ❌ "Connection refused"
+
+**Verificar:**
+- ✓ Servidor está em execução? (Estado do Terminal 1)
+- ✓ IP está correto? (ipconfig)
+- ✓ Firewall permite a porta? (Ver secção acima)
+- ✓ Mesma rede? (Ping 192.168.1.100 do outro PC)
+
+**Teste de conectividade:**
+```bash
+ping 192.168.1.100  # Do Computador B/C/D...
+```
+
+### ❌ "CSV não encontrado"
+
+**Solução:**
+```bash
+# Certifique-se de estar no diretório correto
+cd Sistemas_Distribuidos
+ls sensores.csv    # ou dir sensores.csv (Windows)
+
+# Se não existir, crie um vazio:
+echo "SENSOR_001|ativo|Zona A|[temperatura]|2024-01-15T10:30:00Z" > sensores.csv
+```
+
+---
+
+## 📈 ESCALABILIDADE
+
+### Pequena Rede (2-5 Sensores):
+```
+1 Servidor + 1 Gateway + 2-5 Sensores
+Capacidade: ✅ Completa
+Sincronização: ✅ Excelente
+Latência: ~1-5ms
+```
+
+### Rede Média (5-20 Sensores):
+```
+1 Servidor + 1 Gateway + 5-20 Sensores
+Capacidade: ✅ Adequada
+Sincronização: ✅ Thread-safe
+Latência: ~5-20ms
+```
+
+### Grande Rede (20+ Sensores):
+```
+Recomendação: 1 Servidor + múltiplas Gateways
+Cada Gateway: 10-20 Sensores próprios
+Sincronização: Centralizada no Servidor
+```
+
+---
+
+## 🔐 SEGURANÇA EM REDE
+
+### Recomendações:
+
+1. **Firewall Restritivo:**
+   - Apenas abra portos 5000 e 6000
+   - Opcional: usar VPN para rede distribuída
+
+2. **Validação:**
+   - Ficheiro sensores.csv limita sensores autorizados
+   - Altere IPs de acordo com sua rede
+
+3. **Monitoramento:**
+   - Verifique gateway.log e servidor.log periodicamente
+   - Monitor de timeout: inativo após 60s
+
+---
+
+## 📝 SUMÁRIO
+
+| Componente | Máquina | IP | Porta | Comando |
+|-----------|---------|----|----|---------|
+| **Servidor** | A | 192.168.1.100 | 6000 | `dotnet run --project src/Servidor -- 6000` |
+| **Gateway** | B | 192.168.1.101 | 5000 | `dotnet run --project src/Gateway -- 5000 192.168.1.100:6000 ./sensores.csv` |
+| **Sensor 1** | C | 192.168.1.102 | - | `dotnet run --project src/Sensor -- 192.168.1.101 5000 sensor-C1` |
+| **Sensor 2** | C/D | ... | - | `dotnet run --project src/Sensor -- 192.168.1.101 5000 sensor-XX` |
+
+---
+
+## ✅ CHECKLIST FINAL
+
+- [ ] IPs descobertos (ipconfig em cada máquina)
+- [ ] Repositório clonado em todas as máquinas
+- [ ] `dotnet build` executado com sucesso
+- [ ] Firewall configurado (portos 5000 e 6000)
+- [ ] Servidor em execução (Terminal A)
+- [ ] Gateway em execução (Terminal B)
+- [ ] Sensores em execução (Terminais C, D,...)
+- [ ] Dados enviados com sucesso
+- [ ] Dados verificados no servidor (dados/*.txt)
+- [ ] Dados correlacionados (sensores diferentes no mesmo ficheiro)
+
+---
+
+## 📧 SUPORTE
+
+Se tiver problemas:
+
+1. **Verifique logs:**
+   - `dados/gateway.log` (Computador B)
+   - `dados/servidor.log` (Computador A)
+
+2. **Testes básicos:**
+   - Ping entre máquinas
+   - Telnet para portos (telnet 192.168.1.100 6000)
+   - Firewall rules
+
+3. **Contactar Docentes:**
+   - hparedes@utad.pt
+   - tiagu.m.pinto@gmail.com
+
+---
+
+**Versão:** 1.0  
+**Data:** 14 de Abril de 2026  
+**Status:** Completo e Validado ✅

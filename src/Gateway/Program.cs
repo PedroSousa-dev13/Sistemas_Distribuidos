@@ -190,13 +190,14 @@ namespace Gateway
             string ip = parts[0];
             int port = int.Parse(parts[1]);
             int tentativas = 0;
+            int maxTentativas = 10;  // Limite máximo de tentativas
             
-            while (true)
+            while (tentativas < maxTentativas)
             {
                 tentativas++;
                 try
                 {
-                    Console.WriteLine($"🔗 A conectar ao servidor {ip}:{port} (tentativa {tentativas})...");
+                    Console.WriteLine($"🔗 A conectar ao servidor {ip}:{port} (tentativa {tentativas}/{maxTentativas})...");
                     serverClient = new TcpClient();
                     serverClient.Connect(ip, port);
                     serverStream = serverClient.GetStream();
@@ -204,11 +205,20 @@ namespace Gateway
                     isServerConnected = true;
                     Log($"✓ Conectado ao servidor com SUCESSO! ({ip}:{port})");
                     Console.WriteLine($"✅ Conexão com servidor estabelecida!\n");
-                    break;
+                    return;
                 }
                 catch (Exception ex)
                 {
-                    Log($"✗ Falha na tentativa {tentativas} de conectar ao servidor: {ex.Message}");
+                    Log($"✗ Falha na tentativa {tentativas}/{maxTentativas} de conectar ao servidor: {ex.Message}");
+                    
+                    if (tentativas >= maxTentativas)
+                    {
+                        Log($"❌ Falha ao conectar ao servidor após {maxTentativas} tentativas. Servidor pode estar indisponível.");
+                        Console.WriteLine($"❌ Não foi possível conectar ao servidor após {maxTentativas} tentativas.\n");
+                        isServerConnected = false;
+                        return;
+                    }
+                    
                     if (tentativas % 3 == 0)
                     {
                         Console.WriteLine($"⏳ Aguardando 5 segundos antes de tentar novamente...\n");
@@ -264,43 +274,53 @@ namespace Gateway
                     serverStream.Write(data, 0, data.Length);
                     serverStream.Flush();
 
-                    // Tentar ler resposta com timeout
-                    serverStream.ReadTimeout = 5000;
-                    string response = serverReader.ReadLine();
-                    
-                    if (response != null)
+                    // Apenas aguardar resposta para mensagens DATA (que esperam DATA_ACK)
+                    if (msg.Tipo == TiposMensagem.DATA)
                     {
+                        serverStream.ReadTimeout = 5000;
                         try
                         {
-                            var ackMsg = MensagemSerializer.Deserializar(response);
-                            if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
+                            string response = serverReader.ReadLine();
+                            
+                            if (response != null)
                             {
-                                Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
-                            }
-                            else
-                            {
-                                Log($"⚠ Resposta inesperada do servidor: {ackMsg?.Tipo}");
+                                try
+                                {
+                                    var ackMsg = MensagemSerializer.Deserializar(response);
+                                    if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
+                                    {
+                                        Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
+                                    }
+                                    else
+                                    {
+                                        Log($"⚠ Resposta inesperada do servidor: {ackMsg?.Tipo}");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log($"⚠ Erro ao desserializar ACK do servidor: {ex.Message}");
+                                }
                             }
                         }
-                        catch (Exception ex)
+                        catch (TimeoutException)
                         {
-                            Log($"⚠ Erro ao desserializar ACK do servidor: {ex.Message}");
+                            Log($"✗ Timeout ao aguardar ACK do servidor para DATA");
+                            isServerConnected = false;
+                        }
+                        finally
+                        {
+                            serverStream.ReadTimeout = Timeout.Infinite;
                         }
                     }
-                }
-                catch (TimeoutException)
-                {
-                    Log($"✗ Timeout ao aguardar ACK do servidor");
-                    isServerConnected = false;
+                    else
+                    {
+                        Log($"✓ Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor.");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"✗ Erro ao enviar mensagem para servidor: {ex.Message}");
                     isServerConnected = false;
-                }
-                finally
-                {
-                    serverStream.ReadTimeout = Timeout.Infinite;
                 }
             }
         }
@@ -440,8 +460,6 @@ namespace Gateway
                             
 
                         case TiposMensagem.HEARTBEAT:
-                            { 
-                            }
                             AtualizarLastSync(msg.SensorId);
                             var heartbeatAck = new Mensagem(TiposMensagem.HEARTBEAT_ACK, msg.SensorId, new Dictionary<string, object>(), DateTime.Now.ToString("o"));
                             writer.WriteLine(MensagemSerializer.Serializar(heartbeatAck));

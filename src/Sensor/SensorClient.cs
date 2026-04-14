@@ -266,18 +266,18 @@ public class SensorClient : IDisposable
     /// <summary>
     /// Envia uma mensagem de heartbeat para a Gateway.
     /// </summary>
-    private async Task EnviarHeartbeatAsync()
+    private Task EnviarHeartbeatAsync()
     {
         try
         {
             var mensagem = Mensagem.CriarHeartbeat(SensorId);
+            var json = MensagemSerializer.Serializar(mensagem);
+            var dados = Encoding.UTF8.GetBytes(json + "\n");
 
             lock (_streamLock)
             {
                 if (_stream?.CanWrite == true)
                 {
-                    var json = MensagemSerializer.Serializar(mensagem);
-                    var dados = Encoding.UTF8.GetBytes(json + "\n");
                     _stream.Write(dados, 0, dados.Length);
                 }
             }
@@ -288,6 +288,8 @@ public class SensorClient : IDisposable
         {
             Log($"Falha ao enviar heartbeat: {ex.Message}");
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
