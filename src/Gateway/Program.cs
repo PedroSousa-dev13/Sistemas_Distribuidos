@@ -14,9 +14,22 @@ namespace Gateway
 {
     class Program
     {
+        private sealed class PendingDataMessage
+        {
+            public PendingDataMessage(Mensagem message)
+            {
+                Message = message;
+                Completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+
+            public Mensagem Message { get; }
+
+            public TaskCompletionSource<bool> Completion { get; }
+        }
+
         private static Dictionary<string, SensorInfo> sensors = new Dictionary<string, SensorInfo>();
         private static Mutex csvMutex = new Mutex();
-        private static BlockingCollection<Mensagem> messageQueue = new BlockingCollection<Mensagem>(100);
+        private static BlockingCollection<PendingDataMessage> messageQueue = new BlockingCollection<PendingDataMessage>(100);
         private static TcpClient serverClient;
         private static NetworkStream serverStream;
         private static StreamReader serverReader;
@@ -76,26 +89,26 @@ namespace Gateway
 
         private static void ExibirBannerInicial(int porta, string servidor, string csv)
         {
-            Console.WriteLine("\n╔═══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║         GATEWAY - Sistema IoT Distribuído - FASE 3              ║");
-            Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝\n");
+            Console.WriteLine("\n+---------------------------------------------------------------+");
+            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido - FASE 3            |");
+            Console.WriteLine("+---------------------------------------------------------------+\n");
             
-            Console.WriteLine("📋 Configuração Inicial:");
-            Console.WriteLine($"   • Porto de escuta para Sensores: {porta}");
-            Console.WriteLine($"   • Servidor remoto: {servidor}");
-            Console.WriteLine($"   • Ficheiro CSV de sensores: {csv}");
+            Console.WriteLine("Configuracao Inicial:");
+            Console.WriteLine($"  Porto de escuta para Sensores: {porta}");
+            Console.WriteLine($"  Servidor remoto: {servidor}");
+            Console.WriteLine($"  Ficheiro CSV de sensores: {csv}");
             Console.WriteLine();
         }
 
         private static void ExibirGatewayPronta(int porta)
         {
-            Console.WriteLine("✅ GATEWAY INICIADA COM SUCESSO!");
-            Console.WriteLine("═══════════════════════════════════════════════════════════════");
-            Console.WriteLine($"🔗 Aguardando conexões de sensores na porta {porta}...");
-            Console.WriteLine($"📡 Ligada ao servidor remoto");
-            Console.WriteLine($"⏱️  Sistema de heartbeat ativo");
-            Console.WriteLine($"🔍 Monitor de sensores ativo (timeout: 60s)");
-            Console.WriteLine("═══════════════════════════════════════════════════════════════\n");
+            Console.WriteLine("GATEWAY INICIADA COM SUCESSO!");
+            Console.WriteLine("===============================================================");
+            Console.WriteLine($"Aguardando conexoes de sensores na porta {porta}...");
+            Console.WriteLine("Ligada ao servidor remoto");
+            Console.WriteLine("Sistema de heartbeat ativo");
+            Console.WriteLine("Monitor de sensores ativo (timeout: 60s)");
+            Console.WriteLine("===============================================================\n");
         }
 
         private static void LerCSV()
@@ -151,7 +164,7 @@ namespace Gateway
             {
                 if (sensors.ContainsKey(id))
                 {
-                    sensors[id].LastSync = DateTime.Now;
+                    sensors[id].LastSync = DateTime.UtcNow;
                     EscreverCSV();
                 }
             }
@@ -198,14 +211,14 @@ namespace Gateway
                 tentativas++;
                 try
                 {
-                    Console.WriteLine($"🔗 A conectar ao servidor {ip}:{port} (tentativa {tentativas}/{maxTentativas})...");
+                    Console.WriteLine($"A conectar ao servidor {ip}:{port} (tentativa {tentativas}/{maxTentativas})...");
                     serverClient = new TcpClient();
                     serverClient.Connect(ip, port);
                     serverStream = serverClient.GetStream();
                     serverReader = new StreamReader(serverStream, new UTF8Encoding(false));
                     isServerConnected = true;
                     Log($"✓ Conectado ao servidor com SUCESSO! ({ip}:{port})");
-                    Console.WriteLine($"✅ Conexão com servidor estabelecida!\n");
+                    Console.WriteLine($"Conexao com servidor estabelecida!\n");
                     return;
                 }
                 catch (Exception ex)
@@ -215,14 +228,14 @@ namespace Gateway
                     if (tentativas >= maxTentativas)
                     {
                         Log($"❌ Falha ao conectar ao servidor após {maxTentativas} tentativas. Servidor pode estar indisponível.");
-                        Console.WriteLine($"❌ Não foi possível conectar ao servidor após {maxTentativas} tentativas.\n");
+                        Console.WriteLine($"Nao foi possivel conectar ao servidor apos {maxTentativas} tentativas.\n");
                         isServerConnected = false;
                         return;
                     }
                     
                     if (tentativas % 3 == 0)
                     {
-                        Console.WriteLine($"⏳ Aguardando 5 segundos antes de tentar novamente...\n");
+                        Console.WriteLine($"Aguardando 5 segundos antes de tentar novamente...\n");
                     }
                     Thread.Sleep(5000);
                 }
@@ -235,8 +248,9 @@ namespace Gateway
             {
                 try
                 {
-                    var msg = messageQueue.Take();
-                    SendToServer(msg);
+                    var pendingMessage = messageQueue.Take();
+                    var success = SendToServer(pendingMessage.Message);
+                    pendingMessage.Completion.TrySetResult(success);
                 }
                 catch (Exception ex)
                 {
@@ -257,7 +271,7 @@ namespace Gateway
             }
         }
 
-        private static void SendToServer(Mensagem msg)
+        private static bool SendToServer(Mensagem msg)
         {
             lock (serverLock)
             {
@@ -267,7 +281,7 @@ namespace Gateway
                     {
                         Log($"✗ Stream do servidor não disponível");
                         isServerConnected = false;
-                        return;
+                        return false;
                     }
 
                     string json = MensagemSerializer.Serializar(msg) + "\n";
@@ -291,6 +305,7 @@ namespace Gateway
                                     if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
                                     {
                                         Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
+                                        return true;
                                     }
                                     else
                                     {
@@ -307,6 +322,7 @@ namespace Gateway
                         {
                             Log($"✗ Timeout ao aguardar ACK do servidor para DATA");
                             isServerConnected = false;
+                            return false;
                         }
                         finally
                         {
@@ -316,13 +332,17 @@ namespace Gateway
                     else
                     {
                         Log($"✓ Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor.");
+                        return true;
                     }
                 }
                 catch (Exception ex)
                 {
                     Log($"✗ Erro ao enviar mensagem para servidor: {ex.Message}");
                     isServerConnected = false;
+                    return false;
                 }
+
+                return false;
             }
         }
 
@@ -336,7 +356,7 @@ namespace Gateway
                 {
                     foreach (var sensor in sensors.Values)
                     {
-                        if ((DateTime.Now - sensor.LastSync).TotalSeconds > 60 && sensor.Estado == "ativo")
+                        if ((DateTime.UtcNow - sensor.LastSync.ToUniversalTime()).TotalSeconds > 60 && sensor.Estado == "ativo")
                         {
                             sensor.Estado = "manutencao";
                             Log($"Sensor {sensor.SensorId} marcado como manutencao por timeout.");
@@ -394,7 +414,7 @@ namespace Gateway
                                 wasActive = sensors[sensorId].Estado == "ativo";
                                 code = null;
                                 sensors[sensorId].Estado = "ativo";
-                                sensors[sensorId].LastSync = DateTime.Now;
+                                sensors[sensorId].LastSync = DateTime.UtcNow;
                                 EscreverCSV();
                                 description = wasActive
                                     ? "Sensor já se encontrava ativo"
@@ -405,7 +425,7 @@ namespace Gateway
                             if (code == null)
                             {
                                 registered = true;
-                                var response = new Mensagem(TiposMensagem.REGISTER_OK, sensorId, new Dictionary<string, object>(), DateTime.Now.ToString("o"));
+                                var response = new Mensagem(TiposMensagem.REGISTER_OK, sensorId, new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
                                 Log(wasActive
                                     ? $"✅ [REGISTO] Sensor '{sensorId}' confirmado como ativo! (Zona: {zona})"
@@ -417,7 +437,7 @@ namespace Gateway
                                 {
                                     ["error_code"] = code,
                                     ["description"] = description
-                                }, DateTime.Now.ToString("o"));
+                                }, DateTime.UtcNow.ToString("o"));
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
                                 Log($"❌ [REGISTO REJEITADO] Sensor '{sensorId}': {code}");
                             }
@@ -431,7 +451,7 @@ namespace Gateway
                                     {
                                         var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
                                             new Dictionary<string, object> { ["error_code"] = CodigosErro.SERVER_UNAVAILABLE },
-                                            DateTime.Now.ToString("o"));
+                                            DateTime.UtcNow.ToString("o"));
                                         writer.WriteLine(MensagemSerializer.Serializar(error));
                                         Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': Servidor indisponível");
                                     }
@@ -443,21 +463,32 @@ namespace Gateway
 
                                         if (ativo)
                                         {
-                                            messageQueue.Add(msg);
+                                            var pendingMessage = new PendingDataMessage(msg);
+                                            messageQueue.Add(pendingMessage);
                                             var tipoDado = msg.Payload?.GetValueOrDefault("tipo_dado")?.ToString() ?? "desconhecido";
                                             var valor = msg.Payload?.GetValueOrDefault("valor")?.ToString() ?? "N/A";
                                             Log($"📊 [DADOS] Sensor '{msg.SensorId}' → {tipoDado}: {valor}");
 
-                                            // ✅ CORREÇÃO: enviar ACK ao sensor imediatamente
-                                            var dataAck = new Mensagem(TiposMensagem.DATA_ACK, msg.SensorId,
-                                                new Dictionary<string, object>(), DateTime.Now.ToString("o"));
-                                            writer.WriteLine(MensagemSerializer.Serializar(dataAck));
+                                            if (pendingMessage.Completion.Task.Wait(TimeSpan.FromSeconds(10)))
+                                            {
+                                                var dataAck = new Mensagem(TiposMensagem.DATA_ACK, msg.SensorId,
+                                                    new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
+                                                writer.WriteLine(MensagemSerializer.Serializar(dataAck));
+                                            }
+                                            else
+                                            {
+                                                var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
+                                                    new Dictionary<string, object> { ["error_code"] = CodigosErro.SERVER_UNAVAILABLE },
+                                                    DateTime.UtcNow.ToString("o"));
+                                                writer.WriteLine(MensagemSerializer.Serializar(error));
+                                                Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': timeout à espera de confirmação do servidor");
+                                            }
                                         }
                                         else
                                         {
                                             var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
                                                 new Dictionary<string, object> { ["error_code"] = CodigosErro.SENSOR_INACTIVE },
-                                                DateTime.Now.ToString("o"));
+                                                DateTime.UtcNow.ToString("o"));
                                             writer.WriteLine(MensagemSerializer.Serializar(error));
                                             Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': Inativo, mensagem rejeitada");
                                         }
@@ -467,7 +498,7 @@ namespace Gateway
                                 {
                                     var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
                                         new Dictionary<string, object> { ["error_code"] = "NOT_REGISTERED" },
-                                        DateTime.Now.ToString("o"));
+                                        DateTime.UtcNow.ToString("o"));
                                     writer.WriteLine(MensagemSerializer.Serializar(error));
                                     Log($"❌ [DADOS] Sensor '{msg.SensorId}': Não registado");
                                 }
@@ -477,13 +508,13 @@ namespace Gateway
 
                         case TiposMensagem.HEARTBEAT:
                             AtualizarLastSync(msg.SensorId);
-                            var heartbeatAck = new Mensagem(TiposMensagem.HEARTBEAT_ACK, msg.SensorId, new Dictionary<string, object>(), DateTime.Now.ToString("o"));
+                            var heartbeatAck = new Mensagem(TiposMensagem.HEARTBEAT_ACK, msg.SensorId, new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
                             writer.WriteLine(MensagemSerializer.Serializar(heartbeatAck));
                             Log($"💓 [HEARTBEAT] Sensor '{msg.SensorId}' está vivo (Zona: {zona})");
                             break;
 
                         default:
-                            var err = new Mensagem(TiposMensagem.ERROR, msg.SensorId, new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT }, DateTime.Now.ToString("o"));
+                            var err = new Mensagem(TiposMensagem.ERROR, msg.SensorId, new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT }, DateTime.UtcNow.ToString("o"));
                             writer.WriteLine(MensagemSerializer.Serializar(err));
                             Log($"❌ [ERRO] Sensor '{msg.SensorId}': Tipo de mensagem inválido");
                             break;

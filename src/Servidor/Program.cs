@@ -36,16 +36,16 @@ namespace Servidor
             {
                 Directory.CreateDirectory(dataDirectory);
                 Log($"Diretório de dados criado: {dataDirectory}");
-                Console.WriteLine($"✓ Diretório de dados criado em: {dataDirectory}\n");
+                Console.WriteLine($"Diretorio de dados criado em: {dataDirectory}\n");
             }
             else
             {
-                Console.WriteLine($"✓ Diretório de dados encontrado: {dataDirectory}\n");
+                Console.WriteLine($"Diretorio de dados encontrado: {dataDirectory}\n");
             }
 
             // Inicializar mutexes para ficheiros
             InitializeFileMutexes();
-            Console.WriteLine("✓ Mutexes para ficheiros inicializados\n");
+            Console.WriteLine("Mutexes para ficheiros inicializados\n");
 
             // Iniciar listener TCP
             TcpListener listener = new TcpListener(IPAddress.Any, listenPort);
@@ -58,8 +58,8 @@ namespace Servidor
             }
             catch (SocketException ex)
             {
-                Console.WriteLine($"❌ Erro ao iniciar servidor na porta {listenPort}: {ex.Message}");
-                Console.WriteLine($"⏳ Tenta uma porta diferente ou aguarda alguns minutos antes de reiniciar.");
+                Console.WriteLine($"Erro ao iniciar servidor na porta {listenPort}: {ex.Message}");
+                Console.WriteLine($"Tenta uma porta diferente ou aguarda alguns minutos antes de reiniciar.");
                 return;
             }
 
@@ -73,7 +73,7 @@ namespace Servidor
                     {
                         gatewayCount++;
                         Log($"Nova gateway conectada. Total: {gatewayCount}");
-                        Console.WriteLine($"\n📡 Gateway #{gatewayCount} conectada! (Total: {gatewayCount})");
+                        Console.WriteLine($"\nGateway #{gatewayCount} conectada! (Total: {gatewayCount})");
                     }
                     finally
                     {
@@ -99,29 +99,29 @@ namespace Servidor
 
         private static void ExibirBannerInicial(int porta)
         {
-            Console.WriteLine("\n╔═══════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║          SERVIDOR - Sistema IoT Distribuído - FASE 3            ║");
-            Console.WriteLine("╚═══════════════════════════════════════════════════════════════╝\n");
+            Console.WriteLine("\n+---------------------------------------------------------------+");
+            Console.WriteLine("|        SERVIDOR - Sistema IoT Distribuido - FASE 3          |");
+            Console.WriteLine("+---------------------------------------------------------------+\n");
             
-            Console.WriteLine("📋 Configuração do Servidor:");
-            Console.WriteLine($"   • Porto de escuta: {porta}");
-            Console.WriteLine($"   • Protocolo: TCP/IPv4");
-            Console.WriteLine($"   • Modo: Multi-threaded com suporte a múltiplas gateways");
+            Console.WriteLine("Configuracao do Servidor:");
+            Console.WriteLine($"  Porto de escuta: {porta}");
+            Console.WriteLine($"  Protocolo: TCP/IPv4");
+            Console.WriteLine($"  Modo: Multi-threaded com suporte a multiplas gateways");
             Console.WriteLine();
         }
 
         private static void ExibirServidorPronto(int porta)
         {
-            Console.WriteLine("✅ SERVIDOR INICIADO COM SUCESSO!");
-            Console.WriteLine("═══════════════════════════════════════════════════════════════");
-            Console.WriteLine($"🔗 Escutando para conexões na porta {porta}...");
-            Console.WriteLine($"💾 Persistência de dados: ATIVA (diretório 'dados/')");
-            Console.WriteLine($"🔒 Thread-safety: ATIVA (Mutexes por tipo de dado)");
-            Console.WriteLine($"📊 Tipos de dados suportados: 8 (temperatura, humidade, etc.)");
-            Console.WriteLine("═══════════════════════════════════════════════════════════════\n");
+            Console.WriteLine("SERVIDOR INICIADO COM SUCESSO!");
+            Console.WriteLine("===============================================================");
+            Console.WriteLine($"Escutando para conexoes na porta {porta}...");
+            Console.WriteLine($"Persistencia de dados: ATIVA (diretorio 'dados/')");
+            Console.WriteLine($"Thread-safety: ATIVA (Mutexes por tipo de dado)");
+            Console.WriteLine($"Tipos de dados suportados: 8 (temperatura, humidade, etc.)");
+            Console.WriteLine("===============================================================\n");
             
-            Console.WriteLine("👁️  Monitor de Gateways:");
-            Console.WriteLine("────────────────────────────────────────────────────────────────\n");
+            Console.WriteLine("Monitor de Gateways:");
+            Console.WriteLine("----------------------------------------------------------------\n");
         }
 
         private static void InitializeFileMutexes()
@@ -175,7 +175,7 @@ namespace Servidor
                                     TiposMensagem.ERROR,
                                     msg.SensorId,
                                     new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                                    DateTime.Now.ToString("o")
+                                    DateTime.UtcNow.ToString("o")
                                 );
                                 writer.WriteLine(MensagemSerializer.Serializar(error));
                                 break;
@@ -183,14 +183,14 @@ namespace Servidor
                     }
                     catch (JsonException ex)
                     {
-                        Log($"❌ Erro ao deserializar mensagem: {ex.Message}");
+                        Log($"Erro ao deserializar mensagem: {ex.Message}");
                         continue;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Log($"⚠️  Erro na ligação com gateway {gatewayId}: {ex.Message}");
+                    Log($"Erro na ligacao com gateway {gatewayId}: {ex.Message}");
             }
             finally
             {
@@ -204,7 +204,7 @@ namespace Servidor
                     Log($"🔌 Gateway desconectada ({gatewayId}) | Mensagens processadas: {mensagensRecebidas} | Total de gateways: {gatewayCount}");
                     if (gatewayCount > 0)
                     {
-                        Console.WriteLine($"⚠️  Gateway desconectada. Ainda há {gatewayCount} gateway(s) conectada(s)\n");
+                        Console.WriteLine($"Gateway desconectada. Ainda ha {gatewayCount} gateway(s) conectada(s)\n");
                     }
                 }
                 finally
@@ -228,7 +228,7 @@ namespace Servidor
                         TiposMensagem.ERROR,
                         msg.SensorId,
                         new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                        DateTime.Now.ToString("o")
+                        DateTime.UtcNow.ToString("o")
                     );
                     writer.WriteLine(MensagemSerializer.Serializar(error));
                     return;
@@ -243,7 +243,7 @@ namespace Servidor
                         TiposMensagem.ERROR,
                         msg.SensorId,
                         new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                        DateTime.Now.ToString("o")
+                        DateTime.UtcNow.ToString("o")
                     );
                     writer.WriteLine(MensagemSerializer.Serializar(error));
                     return;
@@ -265,7 +265,7 @@ namespace Servidor
                         TiposMensagem.DATA_ACK,
                         sensorId,
                         new Dictionary<string, object>(),
-                        DateTime.Now.ToString("o")
+                        DateTime.UtcNow.ToString("o")
                     );
                     writer.WriteLine(MensagemSerializer.Serializar(ack));
                 }
@@ -281,7 +281,7 @@ namespace Servidor
                     TiposMensagem.ERROR,
                     msg.SensorId,
                     new Dictionary<string, object> { ["error_code"] = "PERSISTENCE_ERROR" },
-                    DateTime.Now.ToString("o")
+                    DateTime.UtcNow.ToString("o")
                 );
                 writer.WriteLine(MensagemSerializer.Serializar(error));
             }

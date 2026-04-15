@@ -25,9 +25,9 @@ class Program
 
     static async Task Main(string[] args)
     {
-        Console.WriteLine("╔════════════════════════════════════════════════════════╗");
-        Console.WriteLine("║            SENSOR - Sistema IoT Distribuído            ║");
-        Console.WriteLine("╚════════════════════════════════════════════════════════╝");
+        Console.WriteLine("+--------------------------------------------------------------+");
+        Console.WriteLine("|            SENSOR - Sistema IoT Distribuido                 |");
+        Console.WriteLine("+--------------------------------------------------------------+");
         Console.WriteLine();
 
         // Validar argumentos
@@ -41,8 +41,8 @@ class Program
         var gatewayPort = int.Parse(args[1]);
         var sensorId = args[2];
 
-        Console.WriteLine($"> Gateway: {gatewayIp}:{gatewayPort}");
-        Console.WriteLine($"> Sensor ID: {sensorId}");
+        Console.WriteLine($"Gateway: {gatewayIp}:{gatewayPort}");
+        Console.WriteLine($"Sensor ID: {sensorId}");
         Console.WriteLine();
 
         using var sensor = new SensorClient(gatewayIp, gatewayPort, sensorId);
@@ -124,17 +124,17 @@ class Program
     private static async Task MenuPrincipalAsync(SensorClient sensor)
     {
         Console.WriteLine();
-        Console.WriteLine("══════════════════════════════════════════════════════════");
-        Console.WriteLine("                    MENU PRINCIPAL                        ");
-        Console.WriteLine("══════════════════════════════════════════════════════════");
+        Console.WriteLine("==========================================================");
+        Console.WriteLine("                      MENU PRINCIPAL                      ");
+        Console.WriteLine("==========================================================");
 
         while (true)
         {
             Console.WriteLine();
-            Console.WriteLine("Opções disponíveis:");
+            Console.WriteLine("Opcoes disponiveis:");
             foreach (var (numero, _, descricao) in TiposMenu)
             {
-                Console.WriteLine($"  [{numero}] Enviar medição de {descricao}");
+                Console.WriteLine($"  [{numero}] Enviar medicao de {descricao}");
             }
             Console.WriteLine("  [0] Sair");
             Console.WriteLine();

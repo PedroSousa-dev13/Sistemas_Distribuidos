@@ -237,8 +237,6 @@ public class SensorClient : IDisposable
     /// </summary>
     private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
     {
-        Log("Heartbeat iniciado (intervalo: 20 segundos)");
-
         while (!cancellationToken.IsCancellationRequested)
         {
             try
@@ -259,8 +257,6 @@ public class SensorClient : IDisposable
                 Log($"Erro no heartbeat: {ex.Message}");
             }
         }
-
-        Log("Heartbeat terminado.");
     }
 
     /// <summary>
@@ -281,8 +277,6 @@ public class SensorClient : IDisposable
                     _stream.Write(dados, 0, dados.Length);
                 }
             }
-
-            Log("Heartbeat enviado");
         }
         catch (Exception ex)
         {
