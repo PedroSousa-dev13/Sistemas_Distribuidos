@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "Gateway": {
+      "commandName": "Project",
+      "commandLineArgs": "5000 127.0.0.1:6000 ./sensores.csv",
+      "workingDirectory": "C:\\Users\\pedri\\Documents\\GitHub\\Sistemas_Distribuidos"
+    }
+  }
+}

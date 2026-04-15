@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "Sensor": {
+      "commandName": "Project",
+      "commandLineArgs": "127.0.0.1 5000 sensor-01",
+      "workingDirectory": "C:\\Users\\pedri\\Documents\\GitHub\\Sistemas_Distribuidos"
+    }
+  }
+}

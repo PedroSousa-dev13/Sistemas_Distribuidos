@@ -115,6 +115,7 @@ namespace Gateway
                 foreach (var line in File.ReadAllLines(csvPath))
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.TrimStart().StartsWith("#")) continue;
                     
                     var parts = line.Split('|');
                     if (parts.Length >= 5)
