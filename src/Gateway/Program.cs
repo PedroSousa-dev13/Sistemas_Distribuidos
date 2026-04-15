@@ -385,11 +385,20 @@ namespace Gateway
                         case TiposMensagem.REGISTER:
                             csvMutex.WaitOne();
                             string code = CodigosErro.SENSOR_NOT_FOUND;
+                            string description = "Sensor não encontrado no sistema";
+                            bool wasActive = false;
                             bool exists = sensors.ContainsKey(sensorId);
                             if (exists)
                             {
                                 zona = sensors[sensorId].Zona;
-                                code = sensors[sensorId].Estado == "ativo" ? null : CodigosErro.SENSOR_INACTIVE;
+                                wasActive = sensors[sensorId].Estado == "ativo";
+                                code = null;
+                                sensors[sensorId].Estado = "ativo";
+                                sensors[sensorId].LastSync = DateTime.Now;
+                                EscreverCSV();
+                                description = wasActive
+                                    ? "Sensor já se encontrava ativo"
+                                    : "Sensor reativado com sucesso";
                             }
                             csvMutex.ReleaseMutex();
                             
@@ -398,11 +407,17 @@ namespace Gateway
                                 registered = true;
                                 var response = new Mensagem(TiposMensagem.REGISTER_OK, sensorId, new Dictionary<string, object>(), DateTime.Now.ToString("o"));
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
-                                Log($"✅ [REGISTO] Sensor '{sensorId}' registado com SUCESSO! (Zona: {zona})");
+                                Log(wasActive
+                                    ? $"✅ [REGISTO] Sensor '{sensorId}' confirmado como ativo! (Zona: {zona})"
+                                    : $"✅ [REGISTO] Sensor '{sensorId}' reativado e registado com SUCESSO! (Zona: {zona})");
                             }
                             else
                             {
-                                var response = new Mensagem(TiposMensagem.REGISTER_ERR, sensorId, new Dictionary<string, object> { ["error_code"] = code }, DateTime.Now.ToString("o"));
+                                var response = new Mensagem(TiposMensagem.REGISTER_ERR, sensorId, new Dictionary<string, object>
+                                {
+                                    ["error_code"] = code,
+                                    ["description"] = description
+                                }, DateTime.Now.ToString("o"));
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
                                 Log($"❌ [REGISTO REJEITADO] Sensor '{sensorId}': {code}");
                             }
