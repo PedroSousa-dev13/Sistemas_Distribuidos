@@ -47,26 +47,19 @@
             }
         },
         {
-            "name": "Run Tests (SharedProtocol)",
+            "name": "Debug DataStreamClient",
             "type": "coreclr",
             "request": "launch",
-            "preLaunchTask": "build-tests",
-            "program": "${workspaceFolder}/tests/SharedProtocol.Tests/bin/Debug/net9.0/SharedProtocol.Tests.dll",
+            "preLaunchTask": "build-datastream",
+            "program": "${workspaceFolder}/src/DataStreamClient/bin/Debug/net9.0/DataStreamClient.dll",
+            "args": ["127.0.0.1", "5000", "dados/stream_dados.csv"],
             "cwd": "${workspaceFolder}",
             "stopAtEntry": false,
             "console": "integratedTerminal",
-            "internalConsoleOptions": "neverOpen"
-        },
-        {
-            "name": "Run Tests (Sensor)",
-            "type": "coreclr",
-            "request": "launch",
-            "preLaunchTask": "build-tests-sensor",
-            "program": "${workspaceFolder}/tests/Sensor.Tests/bin/Debug/net9.0/Sensor.Tests.dll",
-            "cwd": "${workspaceFolder}",
-            "stopAtEntry": false,
-            "console": "integratedTerminal",
-            "internalConsoleOptions": "neverOpen"
+            "internalConsoleOptions": "neverOpen",
+            "env": {
+                "DOTNET_CLI_TELEMETRY_OPTOUT": "1"
+            }
         }
     ],
     "inputs": [

@@ -1,0 +1,368 @@
+﻿APRESENTACAO - GUIAO COMPLETO PARA DEFESA
+========================================
+
+0) COMO USAR ESTE FICHEIRO NA APRESENTACAO
+------------------------------------------
+Objetivo deste guiao:
+- Permitir apresentar o projeto sem depender de memoria improvisada.
+- Dar uma narrativa clara: problema -> arquitetura -> protocolo -> execucao -> conclusao.
+- Servir de base para perguntas tecnicas do professor.
+
+Sugestao de tempo:
+- 2 min: contexto e objetivo
+- 4 min: arquitetura
+- 4 min: protocolo e fluxo de mensagens
+- 3 min: demonstracao pratica
+- 2 min: conclusoes e limites
+
+
+1) CONTEXTO E OBJETIVO DO PROJETO
+---------------------------------
+Projeto de Sistemas Distribuidos para monitorizacao ambiental urbana.
+O sistema foi desenhado para recolher medicoes de sensores, agregar os dados
+numa gateway e persisti-los no servidor, com protocolo de comunicacao proprio.
+
+Objetivo academico principal:
+- Aplicar conceitos de comunicacao distribuida (TCP, protocolo de aplicacao,
+  sincronizacao, tratamento de falhas e concorrencia).
+
+Objetivos funcionais:
+- Registo de sensores.
+- Envio de dados ambientais tipados.
+- Deteccao de falhas por heartbeat.
+- Confirmacao de entrega por ACK.
+- Persistencia por tipo de dado no servidor.
+
+
+2) ARQUITETURA FINAL IMPLEMENTADA
+---------------------------------
+Componentes:
+1. Sensor (cliente manual)
+2. DataStreamClient (cliente automatico por ficheiro CSV)
+3. Gateway (intermediario)
+4. Servidor (persistencia)
+5. SharedProtocol (biblioteca comum)
+
+Topologia:
+- Sensor e DataStreamClient ligam a Gateway (porta 5000).
+- Gateway liga ao Servidor (porta 6000).
+
+Fluxo geral:
+Sensor/DataStreamClient -> Gateway -> Servidor
+
+Pontos fortes da arquitetura:
+- Separacao clara de responsabilidades.
+- Protocolo comum partilhado por todos.
+- Facil de demonstrar e depurar em aula.
+
+
+3) PROTOCOLO DE COMUNICACAO
+---------------------------
+Transporte:
+- TCP/IP
+
+Formato:
+- JSON por mensagem
+- delimitacao por \n (uma mensagem por linha)
+
+Campos base de mensagem:
+- tipo
+- sensor_id
+- payload
+- timestamp (ISO 8601)
+
+Tipos de mensagem suportados:
+- REGISTER, REGISTER_OK, REGISTER_ERR
+- DATA, DATA_ACK
+- HEARTBEAT, HEARTBEAT_ACK
+- ERROR
+
+Codigos de erro padrao:
+- SENSOR_NOT_FOUND
+- SENSOR_INACTIVE
+- SERVER_UNAVAILABLE
+- INVALID_FORMAT
+- INVALID_DATA_TYPE
+
+
+4) FLUXOS FUNCIONAIS IMPORTANTES
+--------------------------------
+4.1) Registo de sensor
+- Sensor envia REGISTER com tipos de dados suportados.
+- Gateway valida com base no sensores.csv.
+- Gateway responde REGISTER_OK ou REGISTER_ERR.
+
+4.2) Envio de dados
+- Sensor envia DATA com tipo_dado e valor.
+- Gateway coloca em fila e encaminha ao servidor.
+- Servidor persiste e responde DATA_ACK.
+- Gateway devolve DATA_ACK ao sensor.
+
+4.3) Heartbeat
+- Sensor envia HEARTBEAT periodico.
+- Gateway atualiza last_sync.
+- Watchdog da Gateway marca manutencao se timeout > 60s.
+
+4.4) Tratamento de erro
+- Mensagens malformadas ou incompletas devolvem ERROR.
+- Falhas de ligacao ao servidor sao registadas no log.
+
+
+5) O QUE CADA MODULO FAZ (VISAO DE CODIGO)
+------------------------------------------
+5.1) SharedProtocol
+- Mensagem: valida tipo, sensor_id obrigatorio e timestamp.
+- MensagemSerializer: serializacao/desserializacao segura em JSON.
+- TiposMensagem/CodigosErro: contrato centralizado.
+
+5.2) Sensor
+- Program: menu interativo para enviar medicoes.
+- SensorClient: conecta, regista, envia DATA, heartbeat e recebe ACK.
+
+5.3) DataStreamClient
+- DataStreamReader: le CSV e agrupa por sensor.
+- Program: cria um SensorClient por sensor e envia dados com timing relativo.
+- Streaming so comeca apos tecla (controle para demonstracao).
+
+5.4) Gateway
+- Le sensores.csv e valida sensores conhecidos.
+- Recebe mensagens dos sensores.
+- Usa fila thread-safe para encaminhar DATA ao servidor.
+- Mantem monitor de timeout por heartbeat.
+
+5.5) Servidor
+- Aceita multiplas gateways.
+- Processa DATA.
+- Persiste em dados/<tipo>.txt com exclusao mutua por tipo.
+
+
+6) CONCORRENCIA E SINCRONIZACAO
+--------------------------------
+Tecnicas usadas:
+- Thread dedicada por ligacao na Gateway e no Servidor.
+- BlockingCollection na Gateway para produtor-consumidor.
+- Mutex por tipo de dado no Servidor para escrita segura em ficheiro.
+- lock em seccoes criticas (logs e stream compartilhado).
+
+Porque e importante:
+- Evita corrupcao de dados em escrita concorrente.
+- Evita race conditions no encaminhamento de mensagens.
+- Mantem o sistema consistente com multiplos clientes.
+
+
+7) PERSISTENCIA E EVIDENCIA DE FUNCIONAMENTO
+--------------------------------------------
+No servidor, cada tipo de dado e escrito em ficheiro proprio:
+- dados/temperatura.txt
+- dados/humidade.txt
+- dados/qualidade_ar.txt
+- dados/ruido.txt
+- dados/pm25.txt
+- dados/pm10.txt
+- dados/luminosidade.txt
+- dados/imagem.txt
+
+Formato de linha:
+- timestamp|sensor_id|valor
+
+Tambem sao mantidos logs:
+- dados/servidor.log
+- gateway.log (raiz)
+
+
+8) EXECUCAO DA DEMONSTRACAO (PASSO A PASSO)
+-------------------------------------------
+1. Build:
+- dotnet build SharedProtocol.sln -c Debug
+
+2. Terminal 1 (Servidor):
+- dotnet run --project src/Servidor/Servidor.csproj -- 6000
+
+3. Terminal 2 (Gateway):
+- dotnet run --project src/Gateway/Gateway.csproj -- 5000 127.0.0.1:6000 ./sensores.csv
+
+4. Terminal 3 (Sensor manual):
+- dotnet run --project src/Sensor/Sensor.csproj -- 127.0.0.1 5000 sensor-01
+
+5. Terminal 4 (streaming CSV):
+- dotnet run --project src/DataStreamClient/DataStreamClient.csproj -- 127.0.0.1 5000 dados/stream_dados.csv
+
+6. Pressionar uma tecla no DataStreamClient para iniciar stream.
+
+7. Mostrar dados persistidos:
+- dados/temperatura.txt
+- dados/humidade.txt
+- dados/servidor.log
+
+
+9) O QUE FOI MELHORADO NO FECHO DO PROJETO
+------------------------------------------
+- Integracao do DataStreamClient.
+- Correcao de caminhos relativos para CSV em diferentes contextos de execucao.
+- Arranque controlado do streaming por tecla.
+- Limpeza de codigo morto e comentarios desatualizados.
+- Correcao de nullability no Servidor para build limpa.
+- Atualizacao da documentacao para estado final da entrega.
+
+
+10) LIMITES ATUAIS (HONESTIDADE TECNICA)
+----------------------------------------
+- Sem camada de encriptacao TLS obrigatoria.
+- Sem broker dedicado (Kafka/MQTT).
+- Persistencia em ficheiro local (nao base de dados).
+- Sem autenticacao forte por certificados.
+
+Justificacao:
+- O foco foi cumprir e demonstrar os objetivos da disciplina com clareza e
+  controlo total sobre o protocolo e o fluxo de dados.
+
+
+11) RESPOSTA CURTA PARA A PERGUNTA: "PORQUE ESTA ARQUITETURA?"
+---------------------------------------------------------------
+Porque equilibra bem:
+- aprendizagem dos conceitos nucleares,
+- implementacao real funcional,
+- simplicidade de demonstracao,
+- extensibilidade para evolucoes futuras.
+
+
+12) CONCLUSAO FINAL
+-------------------
+A entrega final cumpre os requisitos funcionais e tecnicos do trabalho,
+demonstra conceitos centrais de sistemas distribuidos e apresenta uma base
+modular, legivel e extensivel para evolucao futura.
+
+
+13) MAPA PARA "SABER O CODIGO DE COR"
+-------------------------------------
+13.1) Sensor
+- src/Sensor/Program.cs
+  - Main: valida argumentos e inicia ciclo de vida.
+  - MenuPrincipalAsync: menu de envio manual.
+  - ProcessarOpcaoAsync: construcao do valor e chamada de envio.
+- src/Sensor/SensorClient.cs
+  - IniciarAsync: conectar + registar + arrancar heartbeat.
+  - RegistrarAsync: handshake REGISTER e resposta REGISTER_OK/ERR.
+  - EnviarMedicaoAsync: envia DATA e aguarda DATA_ACK.
+  - HeartbeatLoopAsync: envio periodico de HEARTBEAT.
+  - ReceberMensagemAsync: leitura por linha com delimitador '\n'.
+
+13.2) DataStreamClient
+- src/DataStreamClient/DataStreamReader.cs
+  - CarregarAsync: le CSV e valida registos.
+  - ParsearLinha: parse robusto e coercao de tipo valor.
+  - ObterPorSensor: agrupamento para envio paralelo.
+- src/DataStreamClient/Program.cs
+  - ValidarArgumentos: validacao de IP/porta/caminho.
+  - ResolverCaminhoFicheiro: fallback de caminhos relativos.
+  - ProcessarSensorAsync: timing relativo + reutilizacao SensorClient.
+
+13.3) Gateway
+- src/Gateway/Program.cs
+  - LerCSV: carga de sensores e estado inicial.
+  - HandleSensor: dispatcher por tipo de mensagem.
+  - ConsumerWorker: consumo da fila DATA.
+  - SendToServer: encaminhamento e espera de ACK do servidor.
+  - WatchdogWorker: timeout de sensor e troca para manutencao.
+
+13.4) Servidor
+- src/Servidor/Program.cs
+  - HandleGateway: rececao da gateway e processamento por mensagem.
+  - ProcessarDATA: validacao payload, persistencia e DATA_ACK.
+  - PersistirMedicao: escrita em ficheiro com mutex por tipo.
+
+13.5) SharedProtocol
+- src/SharedProtocol/Mensagem.cs
+  - construtor valida tipo, sensor_id e timestamp.
+  - factory methods criam mensagens padrao do protocolo.
+- src/SharedProtocol/MensagemSerializer.cs
+  - Serializar/Deserializar com validacao de integridade.
+- src/SharedProtocol/TiposMensagem.cs
+  - lista oficial de tipos aceites.
+
+
+14) PERGUNTAS TECNICAS PROVAVEIS (E RESPOSTA CURTA)
+---------------------------------------------------
+Q: "Como garantem que duas threads nao escrevem no mesmo ficheiro ao mesmo tempo?"
+A: Mutex por tipo de dado no servidor, com seccao critica em PersistirMedicao.
+
+Q: "Como garantem entrega de dados?"
+A: Fluxo DATA -> DATA_ACK; o sensor so considera sucesso quando recebe ACK.
+
+Q: "Como detetam sensor inativo?"
+A: Heartbeat periodico + watchdog na gateway com timeout > 60 segundos.
+
+Q: "Porque criaram DataStreamClient se ja existia Sensor?"
+A: Para simular carga reprodutivel por CSV, mantendo o mesmo protocolo e
+   reaproveitando SensorClient para evitar duplicacao de logica.
+
+
+15) GLOSSARIO DE CONCEITOS DE SISTEMAS USADOS NO PROJETO
+---------------------------------------------------------
+Thread
+- Linha de execucao independente dentro de um processo.
+- Onde foi usado: Gateway e Servidor criam threads para atender ligacoes
+  concorrentes sem bloquear todo o programa.
+
+Concorrencia
+- Capacidade de tratar varias operacoes ao mesmo tempo (ou intercaladas).
+- Onde foi usado: multiplos sensores/gateways ativos em simultaneo.
+
+Mutex
+- Mecanismo de exclusao mutua: garante que apenas uma thread entra numa
+  seccao critica de cada vez.
+- Onde foi usado: Servidor usa mutex por tipo de ficheiro para escrita segura.
+
+lock
+- Primitive de sincronizacao do C# para proteger dados partilhados em memoria.
+- Onde foi usado: protecao de logs e streams partilhados.
+
+Produtor-Consumidor
+- Padrao em que produtores colocam trabalho numa fila e consumidores processam.
+- Onde foi usado: Gateway recebe DATA (produtor) e ConsumerWorker encaminha ao
+  servidor (consumidor).
+
+BlockingCollection
+- Fila thread-safe que bloqueia quando vazia/cheia, simplificando concorrencia.
+- Onde foi usado: fila de mensagens DATA na Gateway.
+
+TCP/IP
+- Protocolo de transporte confiavel, orientado a conexao.
+- Onde foi usado: Sensor/DataStreamClient <-> Gateway <-> Servidor.
+
+Socket/Stream
+- Canal de comunicacao de bytes sobre a rede.
+- Onde foi usado: leitura/escrita de mensagens JSON delimitadas por '\n'.
+
+Serializacao / Desserializacao
+- Conversao objeto <-> texto (JSON) para transmissao.
+- Onde foi usado: MensagemSerializer no SharedProtocol.
+
+Protocolo de aplicacao
+- Conjunto de regras de negocio sobre as mensagens trocadas.
+- Onde foi usado: tipos REGISTER, DATA, HEARTBEAT, ACK e ERROR.
+
+ACK (Acknowledgement)
+- Confirmacao de que a mensagem foi recebida e processada.
+- Onde foi usado: DATA_ACK do servidor/gateway para fechar o ciclo de entrega.
+
+Heartbeat
+- Mensagem periodica para provar que o emissor esta ativo.
+- Onde foi usado: Sensor envia HEARTBEAT; Gateway atualiza last_sync.
+
+Watchdog/Timeout
+- Mecanismo que marca falha/inatividade apos periodo sem sinais.
+- Onde foi usado: Gateway marca sensor em manutencao apos 60s sem heartbeat.
+
+Thread-safety
+- Propriedade de codigo correto mesmo com acesso concorrente.
+- Onde foi usado: mutex, lock, fila thread-safe e validacoes de estado.
+
+Race condition
+- Erro quando resultado depende da ordem concorrente de execucao.
+- Como evitado: seccoes criticas, mutexes e desenho produtor-consumidor.
+
+Escalabilidade (neste contexto)
+- Capacidade de suportar mais sensores sem reescrever arquitetura base.
+- Como suportado: modulo Gateway desacoplado, protocolo comum e DataStreamClient
+  para simulacao de carga.

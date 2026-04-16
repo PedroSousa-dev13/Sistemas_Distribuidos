@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DataStreamClient": {
+      "commandName": "Project",
+      "commandLineArgs": "127.0.0.1 5000 ./dados/stream_dados.csv\r\n"
+    }
+  }
+}

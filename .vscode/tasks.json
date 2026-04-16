@@ -45,34 +45,22 @@
             "problemMatcher": "$msCompile"
         },
         {
+            "label": "build-datastream",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["build", "src/DataStreamClient/DataStreamClient.csproj", "-c", "Debug"],
+            "presentation": {
+                "reveal": "silent",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
             "label": "build-sharedprotocol",
             "command": "dotnet",
             "type": "shell",
             "args": ["build", "src/SharedProtocol/SharedProtocol.csproj", "-c", "Debug"],
-            "presentation": {
-                "reveal": "silent",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": "$msCompile"
-        },
-        {
-            "label": "build-tests",
-            "command": "dotnet",
-            "type": "shell",
-            "args": ["build", "tests/SharedProtocol.Tests/SharedProtocol.Tests.csproj", "-c", "Debug"],
-            "presentation": {
-                "reveal": "silent",
-                "focus": false,
-                "panel": "shared"
-            },
-            "problemMatcher": "$msCompile"
-        },
-        {
-            "label": "build-tests-sensor",
-            "command": "dotnet",
-            "type": "shell",
-            "args": ["build", "tests/Sensor.Tests/Sensor.Tests.csproj", "-c", "Debug"],
             "presentation": {
                 "reveal": "silent",
                 "focus": false,
@@ -103,32 +91,10 @@
             }
         },
         {
-            "label": "test-shared-protocol",
+            "label": "run-datastream-local",
             "command": "dotnet",
             "type": "shell",
-            "args": ["test", "tests/SharedProtocol.Tests/SharedProtocol.Tests.csproj", "--logger", "console;verbosity=detailed"],
-            "presentation": {
-                "reveal": "always",
-                "focus": true,
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "test-sensor",
-            "command": "dotnet",
-            "type": "shell",
-            "args": ["test", "tests/Sensor.Tests/Sensor.Tests.csproj", "--logger", "console;verbosity=detailed"],
-            "presentation": {
-                "reveal": "always",
-                "focus": true,
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "test-all",
-            "command": "dotnet",
-            "type": "shell",
-            "args": ["test", "SharedProtocol.sln", "--logger", "console;verbosity=detailed"],
+            "args": ["run", "--project", "src/DataStreamClient/DataStreamClient.csproj", "--", "127.0.0.1", "5000", "./dados/stream_dados.csv"],
             "presentation": {
                 "reveal": "always",
                 "focus": true,

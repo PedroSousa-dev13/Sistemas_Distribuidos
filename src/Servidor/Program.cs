@@ -147,14 +147,14 @@ namespace Servidor
             NetworkStream stream = client.GetStream();
             var reader = new StreamReader(stream, new UTF8Encoding(false));
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
-            string gatewayId = null;
+            string? gatewayId = null;
             int mensagensRecebidas = 0;
 
             try
             {
                 while (true)
                 {
-                    string line = reader.ReadLine();
+                    string? line = reader.ReadLine();
                     if (line == null) break;
 
                     try
@@ -249,10 +249,23 @@ namespace Servidor
                     return;
                 }
 
-                string tipoDado = tipoDadoObj.ToString();
-                string valor = valorObj.ToString();
+                string? tipoDado = tipoDadoObj?.ToString();
+                string? valor = valorObj?.ToString();
                 string timestamp = msg.Timestamp;
                 string sensorId = msg.SensorId;
+
+                if (string.IsNullOrWhiteSpace(tipoDado) || string.IsNullOrWhiteSpace(valor))
+                {
+                    Log($"Campos tipo_dado/valor inválidos na mensagem DATA de {msg.SensorId}");
+                    var error = new Mensagem(
+                        TiposMensagem.ERROR,
+                        msg.SensorId,
+                        new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
+                        DateTime.UtcNow.ToString("o")
+                    );
+                    writer.WriteLine(MensagemSerializer.Serializar(error));
+                    return;
+                }
 
                 // Persistir medição
                 if (PersistirMedicao(tipoDado, timestamp, sensorId, valor))

@@ -18,6 +18,7 @@ Este projeto implementa um **protocolo de comunicação customizado** para monit
 | Componente | Responsabilidade | Porto | Localização |
 |-----------|-----------------|-------|-----------|
 | **Sensor** | Captura e envia dados ambientais | `5000` | `src/Sensor/` |
+| **DataStreamClient** | Lê CSV e envia stream de dados | `5000` | `src/DataStreamClient/` |
 | **Gateway** | Agrega dados de múltiplos sensores | `5000` | `src/Gateway/` |
 | **Servidor** | Persiste dados em ficheiros por tipo | `6000` | `src/Servidor/` |
 | **Protocolo** | Especificação e serialização de mensagens | - | `src/SharedProtocol/` |
@@ -43,6 +44,7 @@ dotnet build SharedProtocol.sln -c Debug
 ```
 ✓ SharedProtocol succeeded
 ✓ Sensor succeeded
+✓ DataStreamClient succeeded
 ✓ Gateway succeeded
 ✓ Servidor succeeded
 Build succeeded in 11.1s
@@ -155,6 +157,10 @@ Sistemas_Distribuidos/
 │   │   ├── Program.cs              # Listener TCP
 │   │   ├── ServidorMonitor.cs      # Persistência
 │   │   └── Servidor.csproj
+│   ├── DataStreamClient/
+│   │   ├── Program.cs              # Streaming por ficheiro CSV
+│   │   ├── DataStreamReader.cs     # Parser e agrupamento de registos
+│   │   └── DataStreamClient.csproj
 │   └── SharedProtocol/
 │       ├── Mensagem.cs             # Classe de mensagem
 │       ├── MensagemSerializer.cs   # Serialização JSON
@@ -191,7 +197,7 @@ Use as tarefas pré-configuradas:
 | `build-solution` | Compilar tudo |
 | `run-gateway-local` | Executar Gateway local |
 | `run-sensor-local` | Executar Sensor local |
-| `test-all` | Rodar todos os testes |
+| `run-datastream-local` | Executar stream de dados por CSV |
 | `clean` | Limpar builds |
 
 **Aceder:** Ctrl+Shift+B ou View → Run Task
@@ -243,15 +249,11 @@ Cada ficheiro tem este formato:
 
 ---
 
-## ✅ Testar Tudo
+## ✅ Validar Entrega
 
-### Teste Automático
 ```bash
-# Compilar
+# Compilar solução completa
 dotnet build SharedProtocol.sln -c Debug
-
-# Executar testes
-dotnet test SharedProtocol.sln --logger "console;verbosity=detailed"
 ```
 
 ### Teste Manual (Concorrência)
@@ -311,10 +313,10 @@ lsof -i :5000 | grep LISTEN | awk '{print $2}' | xargs kill -9
 | Documento | Conteúdo | Secções |
 |-----------|----------|---------|
 | [PROTOCOLO.md](PROTOCOLO.md) | Especificação técnica do protocolo | 11 |
-| [QUICK_START_FASE3.md](QUICK_START_FASE3.md) | Guia rápido de teste | 6 |
-| [SERVIDOR_FASE3_IMPLEMENTACAO.md](SERVIDOR_FASE3_IMPLEMENTACAO.md) | Detalhes técnicos da implementação | 5 |
-| [APRESENTACAO.txt](APRESENTACAO.txt) | Visão completa do projeto | Completa |
-| [MELHORIAS_IMPLEMENTADAS.md](MELHORIAS_IMPLEMENTADAS.md) | Melhorias visuais e técnicas | 3 |
+| [APRESENTACAO.txt](APRESENTACAO.txt) | Resumo executivo da entrega | Completa |
+| [melhorias.txt](melhorias.txt) | Melhorias e estado final | Completa |
+| [comparacao.txt](comparacao.txt) | Comparação com alternativas | Completa |
+| [aa.txt](aa.txt) | Argumentação para defesa oral | Completa |
 | [bugs.txt](bugs.txt) | Histórico de bugs corrigidos | 6/6 |
 
 ---
@@ -380,7 +382,6 @@ Servidor (Persistência)
 - Tratamento robusto de erros
 - Logging estruturado
 - Documentação técnica completa
-- Testes unitários
 
 ---
 
@@ -391,7 +392,6 @@ Servidor (Persistência)
 | **Build** | ✅ Passing (0 erros, 0 avisos) |
 | **Bugs** | ✅ 6/6 corrigidos |
 | **Documentação** | ✅ Completa (7+ ficheiros) |
-| **Testes** | ✅ Implementados |
 | **Código** | ✅ Validado |
 
 ---

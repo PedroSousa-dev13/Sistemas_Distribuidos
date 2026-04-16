@@ -6,8 +6,8 @@ using System.Threading;
 namespace Servidor
 {
     /// <summary>
-    /// Classe auxiliar para gerir operações de I/O do servidor.
-    /// Fornece métodos thread-safe para persistência de dados.
+    /// Classe auxiliar para gerir operaÃ§Ãµes de I/O do servidor.
+    /// Fornece mÃ©todos thread-safe para persistÃªncia de dados.
     /// </summary>
     public class ServidorMonitor
     {
@@ -28,7 +28,7 @@ namespace Servidor
         }
 
         /// <summary>
-        /// Garante que o diretório de dados existe.
+        /// Garante que o diretÃ³rio de dados existe.
         /// </summary>
         public void EnsureDataDirectory()
         {
@@ -63,8 +63,8 @@ namespace Servidor
         }
 
         /// <summary>
-        /// Persiste uma medição num ficheiro específico do tipo de dado.
-        /// Garante exclusão mútua por tipo de dado.
+        /// Persiste uma mediÃ§Ã£o num ficheiro especÃ­fico do tipo de dado.
+        /// Garante exclusÃ£o mÃºtua por tipo de dado.
         /// </summary>
         public bool PersistirMedicao(string tipoDado, string timestamp, string sensorId, string valor)
         {
@@ -73,7 +73,7 @@ namespace Servidor
                 // Validar tipo de dado
                 if (!_fileMutexes.ContainsKey(tipoDado))
                 {
-                    Log($"Tipo de dado não suportado: {tipoDado}");
+                    Log($"Tipo de dado nÃ£o suportado: {tipoDado}");
                     return false;
                 }
 
@@ -89,7 +89,7 @@ namespace Servidor
                     _fileMutexesLock.ReleaseMutex();
                 }
 
-                // Lock do mutex específico do tipo
+                // Lock do mutex especï¿½fico do tipo
                 mutex.WaitOne();
                 try
                 {
@@ -106,7 +106,7 @@ namespace Servidor
             }
             catch (Exception ex)
             {
-                Log($"Erro ao persistir medição: {ex.Message}");
+                Log($"Erro ao persistir mediÃ§Ã£o: {ex.Message}");
                 return false;
             }
         }
@@ -125,7 +125,7 @@ namespace Servidor
         }
 
         /// <summary>
-        /// Retorna o caminho do diretório de dados.
+        /// Retorna o caminho do diretÃ³rio de dados.
         /// </summary>
         public string DataDirectory => _dataDirectory;
 
