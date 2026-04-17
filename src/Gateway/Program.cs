@@ -425,7 +425,15 @@ namespace Gateway
                             if (code == null)
                             {
                                 registered = true;
-                                var response = new Mensagem(TiposMensagem.REGISTER_OK, sensorId, new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
+                                var response = new Mensagem(
+                                    TiposMensagem.REGISTER_OK,
+                                    sensorId,
+                                    new Dictionary<string, object>
+                                    {
+                                        ["tipos_dados"] = sensors[sensorId].TiposDados
+                                    },
+                                    DateTime.Now.ToString("o")
+                                );
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
                                 Log(wasActive
                                     ? $"✅ [REGISTO] Sensor '{sensorId}' confirmado como ativo! (Zona: {zona})"

@@ -1,30 +1,24 @@
+using SharedProtocol;
 using System.Net.Sockets;
 using System.Text;
-using SharedProtocol;
+using System.Text.Json;
 
 namespace Sensor;
 
-/// <summary>
-/// Cliente Sensor para o sistema de IoT distribuído.
-/// Conecta-se à Gateway, regista-se e envia medições periódicas.
-/// </summary>
 public class SensorClient : IDisposable
 {
-    // Configuração
     public string GatewayIp { get; }
     public int GatewayPort { get; }
     public string SensorId { get; }
 
-    // Ligação TCP
     private TcpClient? _tcpClient;
     private NetworkStream? _stream;
     private readonly object _streamLock = new();
 
-    // Controlo de execução
     private CancellationTokenSource? _cts;
     private Task? _heartbeatTask;
 
-    // Tipos de dados suportados pelo sensor
+    // Lista dinâmica — será substituída pelos tipos enviados pela Gateway
     public static readonly List<string> TiposDadosSuportados = new()
     {
         "temperatura",
@@ -37,31 +31,15 @@ public class SensorClient : IDisposable
         "imagem"
     };
 
-    // Eventos para logging
     public event EventHandler<string>? OnLog;
 
-    /// <summary>
-    /// Cria uma nova instância do cliente Sensor.
-    /// </summary>
-    /// <param name="gatewayIp">Endereço IP da Gateway.</param>
-    /// <param name="gatewayPort">Porto da Gateway.</param>
-    /// <param name="sensorId">Identificador único do sensor.</param>
     public SensorClient(string gatewayIp, int gatewayPort, string sensorId)
     {
-        GatewayIp = gatewayIp ?? throw new ArgumentNullException(nameof(gatewayIp));
+        GatewayIp = gatewayIp;
         GatewayPort = gatewayPort;
-        SensorId = sensorId ?? throw new ArgumentNullException(nameof(sensorId));
-
-        if (string.IsNullOrWhiteSpace(gatewayIp))
-            throw new ArgumentException("IP da Gateway não pode ser vazio.", nameof(gatewayIp));
-
-        if (string.IsNullOrWhiteSpace(sensorId))
-            throw new ArgumentException("ID do sensor não pode ser vazio.", nameof(sensorId));
+        SensorId = sensorId;
     }
 
-    /// <summary>
-    /// Inicia o sensor: conecta, regista e inicia heartbeat.
-    /// </summary>
     public async Task<bool> IniciarAsync()
     {
         _cts = new CancellationTokenSource();
@@ -86,9 +64,6 @@ public class SensorClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Envia uma medição para a Gateway.
-    /// </summary>
     public async Task<bool> EnviarMedicaoAsync(string tipoDado, object valor)
     {
         try
@@ -123,51 +98,22 @@ public class SensorClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Para o sensor de forma ordenada.
-    /// </summary>
     public async Task PararAsync()
     {
         _cts?.Cancel();
 
         if (_heartbeatTask != null)
         {
-            try
-            {
-                await _heartbeatTask.WaitAsync(TimeSpan.FromSeconds(2));
-            }
-            catch { /* Ignorar */ }
+            try { await _heartbeatTask.WaitAsync(TimeSpan.FromSeconds(2)); }
+            catch { }
         }
 
-        try
-        {
-            _stream?.Close();
-        }
-        catch { /* Ignorar */ }
-
-        try
-        {
-            _tcpClient?.Close();
-        }
-        catch { /* Ignorar */ }
+        try { _stream?.Close(); } catch { }
+        try { _tcpClient?.Close(); } catch { }
 
         Log("Sensor terminado.");
     }
 
-    /// <summary>
-    /// Verifica se está conectado à Gateway.
-    /// </summary>
-    public bool EstaConectado()
-    {
-        lock (_streamLock)
-        {
-            return _tcpClient?.Connected == true && _stream != null;
-        }
-    }
-
-    /// <summary>
-    /// Estabelece ligação TCP à Gateway.
-    /// </summary>
     private async Task ConectarAsync()
     {
         Log($"A conectar a {GatewayIp}:{GatewayPort}...");
@@ -186,9 +132,6 @@ public class SensorClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Regista o sensor na Gateway.
-    /// </summary>
     private async Task<bool> RegistrarAsync()
     {
         Log("A enviar pedido de registo...");
@@ -211,6 +154,29 @@ public class SensorClient : IDisposable
             switch (resposta.Tipo)
             {
                 case TiposMensagem.REGISTER_OK:
+
+                    // CORREÇÃO: interpretar corretamente o array vindo da Gateway
+                    if (resposta.Payload != null &&
+                        resposta.Payload.TryGetValue("tipos_dados", out var tiposObj))
+                    {
+                        try
+                        {
+                            var lista = JsonSerializer.Deserialize<List<string>>(tiposObj.ToString());
+
+                            if (lista != null && lista.Count > 0)
+                            {
+                                TiposDadosSuportados.Clear();
+                                TiposDadosSuportados.AddRange(lista);
+
+                                Log($"Tipos de dados recebidos da Gateway: {string.Join(", ", lista)}");
+                            }
+                        }
+                        catch
+                        {
+                            Log("Falha ao interpretar tipos_dados. Mantendo lista padrão.");
+                        }
+                    }
+
                     Log("Sensor registado na Gateway.");
                     return true;
 
@@ -232,9 +198,6 @@ public class SensorClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Loop de heartbeat que envia sinais periódicos à Gateway.
-    /// </summary>
     private async Task HeartbeatLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -242,9 +205,7 @@ public class SensorClient : IDisposable
             try
             {
                 await Task.Delay(TimeSpan.FromSeconds(20), cancellationToken);
-
-                if (cancellationToken.IsCancellationRequested)
-                    break;
+                if (cancellationToken.IsCancellationRequested) break;
 
                 await EnviarHeartbeatAsync();
             }
@@ -259,9 +220,6 @@ public class SensorClient : IDisposable
         }
     }
 
-    /// <summary>
-    /// Envia uma mensagem de heartbeat para a Gateway.
-    /// </summary>
     private Task EnviarHeartbeatAsync()
     {
         try
@@ -273,9 +231,7 @@ public class SensorClient : IDisposable
             lock (_streamLock)
             {
                 if (_stream?.CanWrite == true)
-                {
                     _stream.Write(dados, 0, dados.Length);
-                }
             }
         }
         catch (Exception ex)
@@ -286,9 +242,6 @@ public class SensorClient : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Envia uma mensagem através do stream TCP.
-    /// </summary>
     private async Task EnviarMensagemAsync(Mensagem mensagem)
     {
         lock (_streamLock)
@@ -306,9 +259,6 @@ public class SensorClient : IDisposable
         await Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Recebe uma mensagem do stream TCP.
-    /// </summary>
     private async Task<Mensagem?> ReceberMensagemAsync(CancellationToken cancellationToken)
     {
         if (_stream == null || !_stream.CanRead)
@@ -330,9 +280,7 @@ public class SensorClient : IDisposable
                 }
 
                 if (bytesLidos == 0)
-                {
                     return null;
-                }
 
                 ms.Write(buffer, 0, bytesLidos);
 

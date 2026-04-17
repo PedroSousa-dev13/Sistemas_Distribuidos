@@ -1,3 +1,3 @@
 sensor-01|manutencao|Sala_A|[temperatura,humidade,qualidade_ar,ruido,pm25,pm10,luminosidade,imagem]|2026-04-16T21:51:45.3214128+01:00
 sensor-02|manutencao|Sala_B|[temperatura,humidade]|2026-04-16T21:51:45.3254065+01:00
-sensor-03|ativo|Corredor|[temperatura,humidade]|2026-04-16T20:57:11.3806675Z
+sensor-03|ativo|Corredor|[ruido,humidade]|2026-04-17T14:43:15.5075910Z
