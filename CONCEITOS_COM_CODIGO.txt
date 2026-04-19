@@ -1,0 +1,1111 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                    CONCEITOS IMPORTANTES + CÓDIGO REAL                    ║
+║                 (Ponte entre Documentação e Implementação)                 ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+Este ficheiro mostra os conceitos MORE importantes do projeto com:
+  • Código real do repositório
+  • Explicação linha-a-linha
+  • Anotações sobre o conceito envolvido
+  • Alternativas e por que não foram usadas
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 1: SERIALIZAÇÃO DE MENSAGENS (JSON ↔ Objetos)
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • Único ponto onde criamos/lemos mensagens
+  • Se falhar aqui, todo o protocolo falha
+  • Aplicação no "core" de todo o sistema
+
+
+CÓDIGO: src/SharedProtocol/MensagemSerializer.cs
+───────────────────────────────────────────────────────────────────────────
+
+public static Mensagem Deserializar(string json)
+{
+    try
+    {
+        // Passo 1: Parsear JSON
+        var obj = JObject.Parse(json);
+        // ↑ JObject é do Newtonsoft.Json
+        // ↑ Converte string JSON em objeto explorável
+        // ↑ Se JSON inválido → JsonReaderException lançada aqui
+
+        // Passo 2: Extrair campos obrigatórios
+        string tipo = obj["tipo"]?.ToString() 
+            ?? throw new InvalidOperationException("Falta campo 'tipo'");
+        // ↑ ?. = "safe navigation" (se null, retorna null)
+        // ↑ ?? = "null coalescing" (se null, lança exceção)
+        // ↑ Garante que tipo nunca é null
+
+        string sensorId = obj["sensor_id"]?.ToString() 
+            ?? throw new InvalidOperationException("Falta campo 'sensor_id'");
+        // ↑ Mesmo padrão: obrigatório
+
+        string timestamp = obj["timestamp"]?.ToString() 
+            ?? throw new InvalidOperationException("Falta campo 'timestamp'");
+        // ↑ Timestamp é string ISO 8601
+        // ↑ Validação básica aqui
+
+        // Passo 3: Extrair payload (dados específicos)
+        var payload = obj["payload"] as JObject;
+        // ↑ Pode ser null (para HEARTBEAT) ou struct JSON (para DATA)
+
+        // Passo 4: Construir objeto Mensagem
+        var mensagem = new Mensagem(tipo, sensorId, timestamp, payload);
+        // ↑ Construtor ainda faz mais validações (veja abaixo)
+        
+        return mensagem;
+    }
+    catch (JsonException ex)
+    {
+        // JSON malformado
+        throw new InvalidOperationException($"JSON inválido: {ex.Message}");
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Serialização: conversão JSON → objeto
+  ✓ Validação: garantir campos obrigatórios
+  ✓ Error handling: JSON inválido não causa crash
+
+
+───────────────────────────────────────────────────────────────────────────
+
+public static string Serializar(Mensagem msg)
+{
+    // Criar estrutura anónima com dados da mensagem
+    var obj = new
+    {
+        tipo = msg.Tipo,
+        sensor_id = msg.SensorId,
+        timestamp = msg.Timestamp,
+        payload = msg.Payload
+    };
+    // ↑ "new { ... }" é tipo anónimo do C#
+    // ↑ Mais fácil que construir JObject linha por linha
+
+    // Serializar para JSON
+    string json = JsonConvert.SerializeObject(obj);
+    // ↑ Converte objeto C# → string JSON
+    // ↑ Resultado:
+    //   {"tipo":"DATA","sensor_id":"sensor-01",...}
+
+    return json;
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Serialização: conversão objeto → JSON
+  ✓ Padronização: todos fazem igual
+
+
+───────────────────────────────────────────────────────────────────────────
+
+COMO É USADO:
+
+// No Sensor (enviando):
+Mensagem msg = new Mensagem("DATA", "sensor-01", DateTime.UtcNow, payload);
+string json = MensagemSerializer.Serializar(msg);
+writer.WriteLine(json + "\n");  // envia pela network
+//                    ↑ delimitador
+
+// Na Gateway (recebendo):
+string json = reader.ReadLine();  // recebe da network
+Mensagem msg = MensagemSerializer.Deserializar(json);
+Console.WriteLine($"Recebi {msg.Tipo} de {msg.SensorId}");
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 2: SINCRONIZAÇÃO COM MUTEX (Evitar Race Conditions)
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • 100 sensores podem enviar teste ao mesmo tempo
+  • Se não sincronizarmos, ficheiro fica corrompido
+  • Mutex é a solução "clássica" para isto
+
+
+CÓDIGO: src/Servidor/Program.cs - Inicialização
+───────────────────────────────────────────────────────────────────────────
+
+// Dicionário de mutexes por tipo de dado
+private static Dictionary<string, Mutex> mutexesPorTipo = new();
+
+// No Main():
+async Task Main()
+{
+    // Pré-criar mutexes para tipos conhecidos
+    string[] tipos = { "temperatura", "humidade", "qualidade_ar", "ruido", 
+                       "pm25", "pm10", "luminosidade", "imagem" };
+    
+    foreach (string tipo in tipos)
+    {
+        mutexesPorTipo[tipo] = new Mutex();
+        // ↑ Cria 1 Mutex por tipo
+        // ↑ Mutex é um objeto que representa "tranca"
+        // ↑ Múltiplos threads podem competir por esta tranca
+    }
+
+    // ... resto do servidor
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Mutex: objeto que representa uma tranca
+  ✓ Pre-alocação: criar antes de need
+  ✓ Dictionary: cada tipo tem sua tranca (granularidade)
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Servidor/Program.cs - Escrita Sincronizada
+───────────────────────────────────────────────────────────────────────────
+
+private static void PersistirMedicao(
+    string tipoDado, 
+    string sensorId, 
+    double valor, 
+    string timestamp)
+{
+    // Passo 1: Obter Mutex para este tipo
+    if (!mutexesPorTipo.TryGetValue(tipoDado, out var mutex))
+    {
+        mutex = new Mutex();
+        mutexesPorTipo[tipoDado] = mutex;
+    }
+    // ↑ Se tipo não existe ainda, cria nova tranca
+    // ↑ TryGetValue: tenta obter, se não existe retorna false
+
+    // Passo 2: CRÍTICO - Entra secção crítica
+    mutex.WaitOne();  // AGUARDA A TRANCA
+    // ↑ Bloqueia até poder entrar
+    // ↑ Se outro thread tem mutex → este aguarda aqui
+    // ↑ NINGUÉM entra enquanto outro está dentro lock()
+
+    try
+    {
+        // Passo 3: Escrita protegida
+        string caminhoFicheiro = $"dados/{tipoDado}.txt";
+        
+        // Abre em modo APPEND (adicionar no fim)
+        using (StreamWriter writer = new StreamWriter(caminhoFicheiro, append: true))
+        {
+            // Formato: timestamp|sensor_id|valor
+            string linha = $"{timestamp}|{sensorId}|{valor}";
+            writer.WriteLine(linha);
+            // ↑ Escreve atomicamente (graças ao lock)
+            // ↑ Se break aqui, ainda está tudo bem (try/finally garante)
+        }
+        // ↑ using automáticamente fecha ficheiro
+    }
+    finally
+    {
+        // Passo 4: CRÍTICO - Liberta tranca
+        mutex.ReleaseMutex();
+        // ↑ Liberta para próximo thread que aguarda
+        // ↑ SEMPRE executado (mesmo se erro acima)
+        // ↑ finally garante isto
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Critical Section: código dentro try { ... }
+  ✓ WaitOne() / ReleaseMutex(): adquire e liberta tranca
+  ✓ try/finally: garante liberta mesmo se erro
+  ✓ Atomicidade: apenas 1 thread escreve por vez
+
+
+───────────────────────────────────────────────────────────────────────────
+
+EXEMPLO DE RACE CONDITION (SEM MUTEX):
+
+// Documento corrompido:
+Temps = 23.5
+s-01|23.5
+s-02s-02|24.0|24.0
+          ↑ malformado!
+
+
+EXEMPLO COM MUTEX (CORRETO):
+
+Tempo crítico:
+  T=00ms: Thread 1 entra mutex_temp, começa escrever
+  T=05ms: Thread 2 tenta entra mutex_temp → AGUARDA
+  T=10ms: Thread 1 liberta mutex_temp
+  T=10ms: Thread 2 agora consegue entrar
+  T=15ms: Thread 2 escreve
+  T=20ms: Thread 2 liberta
+
+Ficheiro:
+  2026-04-19T10:00:00Z|sensor-01|23.5
+  2026-04-19T10:00:01Z|sensor-02|24.0
+  ↑ ordem garantida!
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 3: FILA THREAD-SAFE (BlockingCollection)
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • Gateway recebe 100 DATA/segundo de sensores
+  • Servidor só processa 20/segundo
+  • Sem fila: sistema congela
+  • Com fila: desacopla produtor/consumidor
+
+
+CÓDIGO: src/Gateway/Program.cs - Inicialização
+───────────────────────────────────────────────────────────────────────────
+
+// Fila de dados para encaminhar ao servidor
+private static BlockingCollection<Mensagem> dataQueue = 
+    new BlockingCollection<Mensagem>();
+// ↑ BlockingCollection<T> do System.Collections.Concurrent
+// ↑ Thread-safe FIFO queue (First In, First Out)
+// ↑ Add() nunca bloqueia (fila é ilimitada por default)
+// ↑ Take() bloqueia se vazia
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Gateway/Program.cs - Enfileiramento (Produtor)
+───────────────────────────────────────────────────────────────────────────
+
+private static void HandleSensor(TcpClient client, StreamReader reader, 
+                                 StreamWriter writer)
+{
+    // Corre numa thread dedicada por sensor
+
+    try
+    {
+        while (client.Connected)
+        {
+            // Lê mensagem de sensor
+            string json = reader.ReadLine();
+            Mensagem msg = MensagemSerializer.Deserializar(json);
+            
+            // Se for DATA, enfileira
+            if (msg.Tipo == "DATA")
+            {
+                dataQueue.Add(msg);
+                // ↑ Adiciona ao fim da fila
+                // ↑ Retorna IMEDIATAMENTE (não bloqueia)
+                // ↑ Depois o ConsumerWorker processa
+
+                // Não aguardamos a entrega ao servidor aqui!
+                // ↑ Sensor já recebeu "enfileiredo"
+                // ↑ Gateway depois responde DATA_ACK
+            }
+            else if (msg.Tipo == "HEARTBEAT")
+            {
+                // Atualiza stats e responde rapidamente
+                UpdateLastSync(msg.SensorId);
+                writer.WriteLine(Serializar(new Mensagem("HEARTBEAT_ACK", ...)));
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ERROR] HandleSensor: {ex.Message}");
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Produtor: Add() enfileira imediatamente
+  ✓ Não bloqueia: HandleSensor não aguarda Servidor
+  ✓ Resposta rápida: sensor cliente fica contente
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Gateway/Program.cs - Desfileiramento (Consumidor)
+───────────────────────────────────────────────────────────────────────────
+
+private static async Task ConsumerWorker()
+{
+    // Corre numa thread dedicada
+    // Processa fila em background
+
+    try
+    {
+        while (true)
+        {
+            // Passo 1: Aguarda mensagem na fila
+            Mensagem msg = dataQueue.Take();
+            // ↑ BLOQUEIA se fila vazia
+            // ↑ Quando Add() é chamado → desbloqueia
+            // ↑ Muito mais eficiente que busy-wait (sleep loop)
+
+            // Passo 2: Serializa
+            string json = MensagemSerializer.Serializar(msg);
+
+            // Passo 3: Envia ao Servidor
+            try
+            {
+                serverWriter.WriteLine(json);
+                serverWriter.Flush();
+                // ↑ Essencial: flush() garante envio imediato
+                // ↑ Sem flush, pode ficar em buffer
+
+                // Passo 4: Aguarda ACK do Servidor
+                string ackJson = serverReader.ReadLine();
+                Mensagem ack = MensagemSerializer.Deserializar(ackJson);
+                
+                if (ack.Tipo == "DATA_ACK")
+                {
+                    // Passo 5: Retransmite DATA_ACK ao sensor
+                    // (originalmente veio de qual sensor?)
+                    // Aqui precisamos saber qual sensor enviou
+                    FindSensorClientAndSendACK(msg.SensorId, ack);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Falha ao encaminhar: {ex.Message}");
+                // Fila retém mensagem (não é processada)
+                // Retry manual? Aqui pode adicionar lógica
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ERROR] ConsumerWorker: {ex.Message}");
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Consumidor: Take() desbloqueia quando chega
+  ✓ Eficiência: sem busy-wait, sem sleep
+  ✓ Sincronização automática: BlockingCollection cuida
+
+
+───────────────────────────────────────────────────────────────────────────
+
+DIAGRAMA DE FLUXO:
+
+Tempo     HandleSensor thread 1     HandleSensor thread 2    ConsumerWorker
+────────  ────────────────────────  ────────────────────────  ─────────────
+  T=0ms   Add(DATA-temp)            
+            ↓ retorna im.
+  T=1ms                             Add(DATA-hum)
+                                      ↓ retorna im.
+  T=2ms                                                       Take() → DATA-temp
+  T=3ms                                                         SendToServer()
+  T=5ms                                                         ← ACK
+  T=6ms   ... continua               ... continua              Take() → DATA-hum
+                                                               SendToServer()
+
+Resultado: Sensores nunca bloqueiam, mesmo se Servidor lento
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 4: PROTOCOLO COM VALIDAÇÃO (Máquina de Estados)
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • Não podem receber DATA antes de REGISTER_OK
+  • Não podem ignorar campos obrigatórios
+  • Protocolo é "máquina de estados"
+
+
+CÓDIGO: src/SharedProtocol/Mensagem.cs - Validação no Construtor
+───────────────────────────────────────────────────────────────────────────
+
+public class Mensagem
+{
+    public string Tipo { get; }
+    public string SensorId { get; }
+    public string Timestamp { get; }
+    public JObject Payload { get; }
+
+    // Construtor que VALIDA
+    public Mensagem(string tipo, string sensorId, string timestamp, JObject payload)
+    {
+        // Validação 1: Tipo é válido?
+        if (!TiposMensagem.EhValido(tipo))
+        {
+            throw new ArgumentException(
+                $"Tipo inválido: '{tipo}'. " +
+                $"Tipos válidos: {string.Join(", ", TiposMensagem.Todos)}");
+            // ↑ Falha rápido com mensagem clara
+        }
+
+        // Validação 2: SensorId nunca é null
+        if (string.IsNullOrWhiteSpace(sensorId))
+        {
+            throw new ArgumentException("SensorId é obrigatório");
+        }
+
+        // Validação 3: Timestamp é ISO 8601?
+        if (!DateTime.TryParseExact(timestamp, "O", 
+            CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, 
+            out _))
+        {
+            throw new ArgumentException(
+                $"Timestamp inválido: '{timestamp}'. " +
+                $"Esperava ISO 8601 (ex: 2026-04-19T10:30:45Z)");
+        }
+
+        // Validação 4: Payload não é obrigatório, mas se existe valida
+        if (payload != null && payload.Type == JTokenType.Null)
+        {
+            // Tipo específico?
+            // Alguns tipos precisam payload
+        }
+
+        // Se passou todas validações, atribui
+        this.Tipo = tipo;
+        this.SensorId = sensorId;
+        this.Timestamp = timestamp;
+        this.Payload = payload ?? new JObject();
+    }
+
+    // Factory métodos para criar mensagens "corretas"
+    public static Mensagem CriarRegister(string sensorId)
+    {
+        return new Mensagem(
+            TiposMensagem.REGISTER,
+            sensorId,
+            DateTime.UtcNow.ToString("O"),
+            new JObject()
+        );
+        // ↑ Timestamp automático
+        // ↑ Tipo é sempre REGISTER
+        // ↑ Impossível errar
+    }
+
+    public static Mensagem CriarData(string sensorId, 
+                                     string tipoDado, 
+                                     object valor)
+    {
+        var payload = new JObject
+        {
+            ["tipo_dado"] = tipoDado,
+            ["valor"] = valor
+        };
+
+        return new Mensagem(
+            TiposMensagem.DATA,
+            sensorId,
+            DateTime.UtcNow.ToString("O"),
+            payload
+        );
+        // ↑ Constructor valida
+        // ↑ Se tipoDado inválido → erro aqui (bom!)
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Validação no construtor: falha rápido
+  ✓ Factory methods: previne erros
+  ✓ Mensagens são "imutáveis" (sem setter)
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Sensor/SensorClient.cs - Máquina de Estados
+───────────────────────────────────────────────────────────────────────────
+
+public async Task IniciarAsync(string gateywayIp, int port)
+{
+    try
+    {
+        // Estado 1: CONECTANDO
+        Console.WriteLine($"[INFO] Conectando a {gatewayIp}:{port}...");
+        client = new TcpClient();
+        await client.ConnectAsync(gatewayIp, port);
+        // ↑ TCP 3-way handshake ocorre aqui (automático)
+
+        // Estado 2: ENVIANDO REGISTER
+        Console.WriteLine("[INFO] Enviando REGISTER...");
+        Mensagem register = Mensagem.CriarRegister(this.sensorId);
+        string registerJson = MensagemSerializer.Serializar(register);
+        writer.WriteLine(registerJson);
+        writer.Flush();
+
+        // Estado 3: AGUARDANDO REGISTER_OK ou REGISTER_ERR
+        Console.WriteLine("[INFO] Aguardando REGISTER_OK...");
+        string responseJson = reader.ReadLine();
+        Mensagem response = MensagemSerializer.Deserializar(responseJson);
+
+        if (response.Tipo == TiposMensagem.REGISTER_OK)
+        {
+            // Estado 4: REGISTADO! Pronto para DATA
+            Console.WriteLine("[INFO] REGISTADO COM SUCESSO");
+            this.isRegistered = true;
+            
+            // Estado 5: Inicia HEARTBEAT em background
+            _ = Task.Run(() => HeartbeatLoopAsync());
+            // ↑ Corre em paralelo sem bloquear
+        }
+        else if (response.Tipo == TiposMensagem.REGISTER_ERR)
+        {
+            // Erro: sensor não reconhecido
+            throw new Exception(
+                $"REGISTER rejeitado: {response.Payload?["motivo"]}");
+        }
+        else
+        {
+            // Resposta inesperada
+            throw new Exception(
+                $"Esperava REGISTER_OK, recebi {response.Tipo}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ERROR] Falha em IniciarAsync: {ex.Message}");
+        throw;
+    }
+}
+
+public async Task EnviarMedicaoAsync(string tipoDado, object valor)
+{
+    // Pré-condição: apenas se registado
+    if (!this.isRegistered)
+    {
+        throw new InvalidOperationException(
+            "Não pode enviar DATA sem REGISTER_OK");
+        // ↑ Validação de estado
+    }
+
+    // Cria mensagem DATA
+    Mensagem data = Mensagem.CriarData(this.sensorId, tipoDado, valor);
+    
+    // Envia
+    string dataJson = MensagemSerializer.Serializar(data);
+    writer.WriteLine(dataJson);
+    writer.Flush();
+
+    // Aguarda DATA_ACK
+    string ackJson = reader.ReadLine();
+    Mensagem ack = MensagemSerializer.Deserializar(ackJson);
+
+    if (ack.Tipo != TiposMensagem.DATA_ACK)
+    {
+        throw new Exception($"Esperava DATA_ACK, recebi {ack.Tipo}");
+    }
+
+    Console.WriteLine($"[OK] {tipoDado}={valor} confirmado");
+    // ↑ Sucesso apenas com ACK
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Estados: CONECTANDO → REGISTANDO → REGISTADO → ENVIANDO_DATA
+  ✓ Transições: validadas (não pode pular)
+  ✓ Pré-condições: verifica estado antes de ação
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 5: DETECÇÃO DE FALHA COM HEARTBEAT
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • Sensor pode desligar a qualquer momento
+  • Sem heartbeat: Gateway não sabe que morreu
+  • Com heartbeat: detecta em 60 segundos
+
+
+CÓDIGO: src/Sensor/SensorClient.cs - Thread de Heartbeat
+───────────────────────────────────────────────────────────────────────────
+
+private async Task HeartbeatLoopAsync()
+{
+    // Corre em thread background, independentement de EnviarMedicaoAsync
+
+    while (this.isActive)
+    {
+        try
+        {
+            // Aguarda 60 segundos
+            await Task.Delay(TimeSpan.FromSeconds(60));
+            // ↑ Não bloqueia thread, apenas "dorme"
+            // ↑ Sem Task.Delay: seria Thread.Sleep (bloqueia)
+
+            // Envia HEARTBEAT
+            Mensagem heartbeat = Mensagem.CriarHeartbeat(this.sensorId);
+            string json = MensagemSerializer.Serializar(heartbeat);
+            writer.WriteLine(json);
+            writer.Flush();
+
+            // Aguarda HEARTBEAT_ACK
+            string ackJson = reader.ReadLine();
+            Mensagem ack = MensagemSerializer.Deserializar(ackJson);
+
+            if (ack.Tipo == TiposMensagem.HEARTBEAT_ACK)
+            {
+                Console.WriteLine("[HEARTBEAT] OK");
+            }
+            else
+            {
+                Console.WriteLine($"[WARN] Esperava HEARTBEAT_ACK, recebi {ack.Tipo}");
+                this.isActive = false;  // Marca como inativo
+            }
+        }
+        catch (IOException ex)
+        {
+            // Conexão perdida
+            Console.WriteLine($"[ERROR] Perdi conexão: {ex.Message}");
+            this.isActive = false;
+            break;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Heartbeat erro: {ex.Message}");
+            // Continua tentando
+        }
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Background task: corre em paralelo com main
+  ✓ Timeout: cada 60 segundos
+  ✓ Error handling: desliga se falha
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Gateway/Program.cs - Watchdog
+───────────────────────────────────────────────────────────────────────────
+
+private static Dictionary<string, DateTime> lastHeartbeat = new();
+// ↑ Regista quando último heartbeat foi recebido por sensor
+
+private static void UpdateLastSync(string sensorId)
+{
+    // Atualiza último heartbeat
+    lastHeartbeat[sensorId] = DateTime.UtcNow;
+    // ↑ Timestamp atual
+}
+
+private static async Task WatchdogWorker()
+{
+    // Corre em thread separada, verifica cada 10 segundos
+
+    while (true)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(10));
+            // ↑ Verifica timeout a cada 10s
+
+            DateTime now = DateTime.UtcNow;
+
+            foreach (var kvp in sensores)
+            {
+                string sensorId = kvp.Key;
+                SensorInfo sensor = kvp.Value;
+
+                if (!lastHeartbeat.TryGetValue(sensorId, out var lastHB))
+                    continue;  // Sem heartbeat ainda
+
+                // Calcula quanto tempo passou
+                TimeSpan timeSinceHeartbeat = now - lastHB;
+
+                if (timeSinceHeartbeat > TimeSpan.FromSeconds(60))
+                {
+                    // SEM HEARTBEAT HÁ 60+ SEGUNDOS
+                    if (sensor.Estado == "ATIVO")
+                    {
+                        sensor.Estado = "INATIVO";
+                        Console.WriteLine(
+                            $"[WARN] {sensorId} marcado INATIVO " +
+                            $"(último HB: {timeSinceHeartbeat.TotalSeconds}s atrás)");
+                        // ↑ Log claro para debug
+                    }
+                }
+                else if (timeSinceHeartbeat > TimeSpan.FromSeconds(120))
+                {
+                    // SEM HEARTBEAT HÁ 120+ SEGUNDOS - MANUTENCAO
+                    sensor.Estado = "MANUTENCAO";
+                }
+                else if (timeSinceHeartbeat <= TimeSpan.FromSeconds(30))
+                {
+                    // HEARTBEAT RECENTE - ATIVO
+                    sensor.Estado = "ATIVO";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR] Watchdog: {ex.Message}");
+        }
+    }
+}
+
+// Inicialização no Main():
+_ = Task.Run(() => WatchdogWorker());
+// ↑ Inicia watchdog em background
+
+CONCEITO ENVOLVIDO:
+  ✓ Monitorização: verifica estado periódico
+  ✓ Gestão de estado: ATIVO → INATIVO
+  ✓ Rejeitar dados: se INATIVO, não processa DATA
+
+
+───────────────────────────────────────────────────────────────────────────
+
+CÓDIGO: src/Gateway/Program.cs - Rejeição de Dados Inativos
+───────────────────────────────────────────────────────────────────────────
+
+private static void HandleSensor(TcpClient client, StreamReader reader,
+                                 StreamWriter writer, string sensorId)
+{
+    while (client.Connected)
+    {
+        string json = reader.ReadLine();
+        Mensagem msg = MensagemSerializer.Deserializar(json);
+
+        if (msg.Tipo == "DATA")
+        {
+            // PRÉ-CONDIÇÃO: sensor tem que estar ATIVO
+            SensorInfo sensor = sensores[sensorId];
+
+            if (sensor.Estado != "ATIVO")
+            {
+                // Rejeita
+                Mensagem error = new Mensagem(
+                    "ERROR",
+                    sensorId,
+                    DateTime.UtcNow.ToString("O"),
+                    new JObject { ["codigo"] = "SENSOR_INACTIVE" }
+                );
+
+                string errorJson = MensagemSerializer.Serializar(error);
+                writer.WriteLine(errorJson);
+                writer.Flush();
+
+                Console.WriteLine($"[ERROR] {sensorId} está {sensor.Estado}, " +
+                                 $"rejeitando DATA");
+                continue;  // Próxima mensagem
+            }
+
+            // Se chegou aqui, está ATIVO
+            dataQueue.Add(msg);  // Processa normalmente
+        }
+    }
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Validação: verifica estado antes de processar
+  ✓ Proteção: rejeita dados de sensores "mortos"
+  ✓ Claridade: ERROR mensagem explícita
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 6: RESOLUÇÃO DE CAMINHOS ROBUSTA
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • CSV está em pastas diferentes conforme execução
+  • VS Code: rodar de raiz do projeto
+  • .NET CLI: pode vir de bin/Debug/
+  • Sem solução: FileNotFoundException
+
+
+CÓDIGO: src/DataStreamClient/Program.cs
+───────────────────────────────────────────────────────────────────────────
+
+private static string ResolverCaminhoFicheiro(string caminhoRelativo)
+{
+    // Estratégia: tenta múltiplas localizações em ordem
+
+    // Tentativa 1: Tal como é (raiz do projeto)
+    if (File.Exists(caminhoRelativo))
+    {
+        return caminhoRelativo;
+    }
+    Console.WriteLine($"[DEBUG] Não encontrado em: {caminhoRelativo}");
+
+    // Tentativa 2: Subir 3 níveis (bin/Debug/net9.0 → raiz)
+    string caminhoAbsoluto = Path.Combine(
+        Directory.GetCurrentDirectory(),
+        "..", "..", "..",
+        caminhoRelativo
+    );
+    caminhoAbsoluto = Path.GetFullPath(caminhoAbsoluto);
+    // ↑ GetFullPath normaliza ... (resolve ..)
+
+    if (File.Exists(caminhoAbsoluto))
+    {
+        Console.WriteLine($"[DEBUG] Encontrado em: {caminhoAbsoluto}");
+        return caminhoAbsoluto;
+    }
+    Console.WriteLine($"[DEBUG] Não encontrado em: {caminhoAbsoluto}");
+
+    // Tentativa 3: Procurar em DirectoryInfo (subir até encontrar dados/)
+    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+    while (dir.Parent != null)
+    {
+        string caminhoTentativa = Path.Combine(dir.FullName, caminhoRelativo);
+        if (File.Exists(caminhoTentativa))
+        {
+            Console.WriteLine($"[DEBUG] Encontrado em: {caminhoTentativa}");
+            return caminhoTentativa;
+        }
+        dir = dir.Parent;
+    }
+
+    // Nenhuma tentativa funcionou
+    throw new FileNotFoundException(
+        $"Ficheiro '{caminhoRelativo}' não encontrado em:\n" +
+        $"  1. {caminhoRelativo}\n" +
+        $"  2. {caminhoAbsoluto}\n" +
+        $"  3. Diretório pai (search recursivo)\n" +
+        $"Diretório atual: {Directory.GetCurrentDirectory()}");
+    // ↑ Mensagem de erro clara para utilizador debugar
+}
+
+// No Main():
+string caminhoCSV = ResolverCaminhoFicheiro(args[2]);
+// ↑ Se falhar, exceção com explicação
+
+CONCEITO ENVOLVIDO:
+  ✓ Robustez: múltiplas estratégias
+  ✓ Debug: mensagens claras
+  ✓ Usabilidade: "just works" em vários contextos
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ CONCEITO 7: PARSING DE CSV COM VALIDAÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+Por que é importante:
+  • CSV pode ter erros (tipo de dado inválido)
+  • Sem validação: programa crashes
+  • Com validação: mensagem clara e continua
+
+
+CÓDIGO: src/DataStreamClient/DataStreamReader.cs
+───────────────────────────────────────────────────────────────────────────
+
+public static async Task<Dictionary<string, List<Medicao>>> CarregarAsync(
+    string caminhoFicheiro)
+{
+    var resultado = new Dictionary<string, List<Medicao>>();
+
+    try
+    {
+        // Abre ficheiro
+        using (var file = new StreamReader(caminhoFicheiro))
+        {
+            string linha = await file.ReadLineAsync();  // Header (skip)
+            int numeroLinha = 1;
+
+            while ((linha = await file.ReadLineAsync()) != null)
+            {
+                numeroLinha++;
+
+                if (string.IsNullOrWhiteSpace(linha))
+                    continue;  // Linhas vazias
+
+                try
+                {
+                    // Parse esta linha
+                    var medicao = ParsearLinha(linha);
+
+                    // Agrupa por sensor_id
+                    if (!resultado.ContainsKey(medicao.SensorId))
+                    {
+                        resultado[medicao.SensorId] = new List<Medicao>();
+                    }
+                    resultado[medicao.SensorId].Add(medicao);
+                }
+                catch (ArgumentException ex)
+                {
+                    // Erro nesta linha, mas continua
+                    Console.WriteLine(
+                        $"[WARN] Linha {numeroLinha} inválida: {ex.Message}");
+                    // ↑ Log claro com número de linha
+                    continue;  // Próxima linha
+                }
+            }
+        }
+
+        return resultado;
+    }
+    catch (FileNotFoundException)
+    {
+        throw new FileNotFoundException(
+            $"Ficheiro '{caminhoFicheiro}' não encontrado");
+    }
+    catch (IOException ex)
+    {
+        throw new IOException(
+            $"Erro ao ler ficheiro: {ex.Message}");
+    }
+}
+
+private static Medicao ParsearLinha(string linha)
+{
+    // Formato esperado:
+    // timestamp,sensor_id,tipo_dado,valor
+
+    string[] campos = linha.Split(',');
+
+    if (campos.Length != 4)
+    {
+        throw new ArgumentException(
+            $"Esperava 4 campos, recebi {campos.Length}");
+    }
+
+    // Validação 1: Timestamp
+    string timestamp = campos[0].Trim();
+    if (!DateTime.TryParseExact(timestamp, "O", ...out _))
+    {
+        throw new ArgumentException(
+            $"Timestamp inválido: '{timestamp}'");
+    }
+
+    // Validação 2: Sensor ID
+    string sensorId = campos[1].Trim();
+    if (string.IsNullOrWhiteSpace(sensorId))
+    {
+        throw new ArgumentException("SensorId vazio");
+    }
+
+    // Validação 3: Tipo de dado
+    string tipoDado = campos[2].Trim();
+    if (string.IsNullOrWhiteSpace(tipoDado))
+    {
+        throw new ArgumentException("Tipo de dado vazio");
+    }
+
+    // Validação 4: Valor (tem que ser número)
+    string valorStr = campos[3].Trim();
+    if (!double.TryParse(valorStr, out double valor))
+    {
+        throw new ArgumentException(
+            $"Valor não é número: '{valorStr}'");
+    }
+
+    return new Medicao
+    {
+        Timestamp = timestamp,
+        SensorId = sensorId,
+        TipoDado = tipoDado,
+        Valor = valor
+    };
+}
+
+CONCEITO ENVOLVIDO:
+  ✓ Defensive programming: valida cada campo
+  ✓ Error recovery: continua em erro (não crash)
+  ✓ Mensagens: número de linha para debug fácil
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ RESUMO: COMO ESTES CONCEITOS SE JUNTAM
+═══════════════════════════════════════════════════════════════════════════════
+
+          ┌──────────────┐
+          │   Sensor     │
+          │  (cliente)   │
+          └──────┬───────┘
+                 │ (1) Cria Mensagem
+                 ├─→ Serializa em JSON
+                 ├─→ Envia por TCP
+                 │
+          ┌──────▼───────┐
+          │   Gateway    │
+          │ (agregador)  │
+          └──────┬───────┘
+                 │ (2) Deserializa JSON
+                 ├─→ Valida tipo de mensagem
+                 ├─→ Se DATA:
+                 │    ├─→ Verifica estado (heartbeat)
+                 │    ├─→ Enfileira (BlockingCollection)
+                 │    └─→ Responde DATA_ACK
+                 │
+                 ├─→ Se HEARTBEAT:
+                 │    ├─→ Atualiza lastHeartbeat
+                 │    └─→ Watchdog monitora
+                 │
+          ┌──────▼───────┐
+          │  Servidor    │
+          │ (persistência)│
+          └──────┬───────┘
+                 │ (3) ConsumerWorker desfileira
+                 ├─→ Deserializa JSON
+                 ├─→ Extrai tipo_dado
+                 ├─→ Adquire Mutex[tipo_dado]
+                 ├─→ Escreve ficheiro (exclusão mútua)
+                 └─→ Liberta Mutex
+                     ├─→ Envia DATA_ACK
+                     └─→ Gateway retransmite
+
+
+Fluxo completo de UMA medição:
+  1. Sensor cria Mensagem("DATA", ...)
+  2. MensagemSerializer.Serializar() → JSON string
+  3. writer.WriteLine(json) → rede TCP
+  4. Gateway recebe JSON
+  5. MensagemSerializer.Deserializar() → Mensagem object
+  6. Validação: isRegistered? isActive? (máquina de estados)
+  7. dataQueue.Add(msg) → BlockingCollection
+  8. ConsumerWorker.Take() → pega da fila
+  9. Encaminha ao Servidor
+  10. Servidor recebe JSON
+  11. PersistirMedicao() adquire Mutex
+  12. Escreve em dados/temperatura.txt
+  13. Liberta Mutex
+  14. Envia DATA_ACK de volta
+  15. Gateway retransmite DATA_ACK ao Sensor
+  16. Sensor recebe and sabe sucesso!
+
+Total: 16 passos, 5 conceitos-chave, ~50ms
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ EXERCÍCIOS: TESTE A SUA COMPREENSÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+Exercício 1: Serialização
+  Dado este objeto:
+    msg = Mensagem("DATA", "sensor-01", "2026-04-19T10:30:45Z", 
+                   payload: {"tipo_dado": "temperatura", "valor": 23.5})
+  
+  Pergunta: O que retorna MensagemSerializer.Serializar(msg)?
+  Resposta esperada: 
+    {"tipo":"DATA","sensor_id":"sensor-01",...,"payload":{...}}
+
+
+Exercício 2: Race Condition
+  Cenário: Sem Mutex
+    Thread A e B escrevem temperatura simultaneamente
+    Ficheiro antes: 123
+    Thread A: abre, vê "123", escreve "+1" → 124
+    Thread B: abre, vê "123", escreve "+2" → 125
+    Resultado esperado: 126 (123+1+2)
+    Resultado real: 125 (perdeu 1 operação)
+  
+  Pergunta: Como Mutex evita isto?
+  Resposta esperada: Apenas 1 thread por vez entra critical section
+
+
+Exercício 3: BlockingCollection
+  Cenário: Produtor enche fila com 100 itens
+           Consumidor processa 10/segundo
+  
+  Pergunta: Quanto tempo até consumidor ficar a zero?
+  Cálculo: 100 itens / 10 items/s = 10 segundos
+  Produtor não bloqueia (Add retorna imediatamente)
+
+
+Exercício 4: Heartbeat
+  Sensor ligado, mas WiFi cai
+  Pergunta: Quando Gateway marca como INATIVO?
+  Resposta: 60+ segundos sem HEARTBEAT ACK
+
+
+Exercício 5: Máquina de Estados
+  Sensor conecta, mas esquecemos de enviar REGISTER
+  Tentamos: EnviarMedicaoAsync("temperatura", 23.5)
+  
+  Pergunta: O que acontece?
+  Resposta esperada: 
+    if (!this.isRegistered) throw InvalidOperationException
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ FIM
+═══════════════════════════════════════════════════════════════════════════════

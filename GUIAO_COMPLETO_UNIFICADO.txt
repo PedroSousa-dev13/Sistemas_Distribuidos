@@ -1,0 +1,2542 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                  GUIÃO COMPLETO E UNIFICADO DO PROJETO                   ║
+║              SISTEMA DISTRIBUÍDO DE MONITORIZAÇÃO AMBIENTAL                ║
+║                                                                             ║
+║  VERSÃO: ULTRA-DETALHADA (para quem está a descobrir o projeto agora)      ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ ÍNDICE GERAL DO DOCUMENTO
+═══════════════════════════════════════════════════════════════════════════════
+
+  PARTE A: ENTENDER O PROBLEMA E A SOLUÇÃO
+    0. O que é este documento?
+    1. O problema que o sistema resolve
+    2. Solução proposta (visão geral)
+
+  PARTE B: COMO O SISTEMA FUNCIONA
+    3. Arquitetura em detalhes (para iniciantes)
+    4. Protocolo de comunicação (explicado passo a passo)
+    5. Fluxos de dados detalhados com exemplos
+    6. Cada módulo e o que faz
+
+  PARTE C: TÉCNICA AVANÇADA
+    7. Concorrência e sincronização
+    8. Persistência de dados
+    9. Execução prática (demonstração)
+
+  PARTE D: DECISÕES E JUSTIFICAÇÕES
+    10. Por que esta arquitetura? (alternativas analisadas)
+    11. Limitações atuais e honestidade técnica
+    12. Melhorias implementadas no encerramento
+    13. Roadmap para o futuro
+
+  PARTE E: REFERÊNCIA TÉCNICA
+    14. Glossário de conceitos
+    15. Guia de código "saber o código de cor"
+    16. Perguntas técnicas prováveis
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ PARTE A: ENTENDER O PROBLEMA E A SOLUÇÃO
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 0. O QUE É ESTE DOCUMENTO?                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Este é um guião ultra-completo para:
+  • Qualquer pessoa que chegue agora ao projeto e não saiba nada
+  • O docente que quer verificar compreensão técnica
+  • A defesa em aula (contém 15 minutos de narrativa coesa)
+  • Referência durante implementação e debugging
+
+Estrutura:
+  • Começa do zero (o que é um "sensor"? o que é "distribuído"?)
+  • Vai até detalhes técnicos de concorrência
+  • Inclui todas as decisões, alternativas e justificações
+  • NADA foi removido; apenas reorganizado e expandido
+
+Como usar:
+  • Para aprender: ler sequencialmente (PARTES A → B → C → E)
+  • Para apresentar: PARTE A até PARTE C (15 min)
+  • Para debug: saltar para PARTE E (referência rápida)
+  • Para discutir arquitetura: PARTE D (decisões justificadas)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. O PROBLEMA QUE O SISTEMA RESOLVE                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Imaginemos uma cidade do futuro:
+  • Existem 100 sensores espalhados pela cidade (temperatura, humidade, etc.)
+  • Cada sensor recolhe medições de 1 em 1 minuto
+  • Isto gera 100 medições/minuto = 144.000 por dia
+  • Todos os dados precisam chegar a um servidor central para análise
+
+Desafios reais:
+  ✗ Como transmitir dados de 100 sensores simultaneamente?
+  ✗ E se um sensor falhar? Como detectar?
+  ✗ E se dois sensores tentarem escrever no mesmo ficheiro simultaneamente?
+  ✗ Como garantir que nenhuma medição se perde no caminho?
+
+Isto é "Sistemas Distribuídos" em ação:
+  • Múltiplos computadores (sensores) a funcionar em paralelo
+  • Comunicação pela rede (não memória partilhada)
+  • Necessidade de sincronização (quem escreve primeiro?)
+  • Tolerância a falhas (o que fazer quando alguém cai?)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. SOLUÇÃO PROPOSTA (VISÃO GERAL)                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Em vez de cada sensor falar diretamente com o servidor (caos):
+
+    ❌ SEM GATEWAY (caos):
+    ┌─────────┐
+    │Sensor 1 │───┐
+    └─────────┘   │
+    ┌─────────┐   ├──→ Servidor (todos a bater na porta!)
+    │Sensor 2 │───┤
+    └─────────┘   │
+    ┌─────────┐   │
+    │Sensor N │───┘
+    └─────────┘
+
+    ✅ COM GATEWAY (organizativo):
+    ┌─────────┐
+    │Sensor 1 │───┐
+    └─────────┘   │
+    ┌─────────┐   ├──→ Gateway ──→ Servidor
+    │Sensor 2 │───┤   (organizador)  (escritor único)
+    └─────────┘   │
+    ┌─────────┐   │
+    │Sensor N │───┘
+    └─────────┘
+
+Vantagens do modelo com Gateway:
+  ✓ Agregação: Gateway junta dados de vários sensores
+  ✓ Fila ordenada: evita colidir na escrita do servidor
+  ✓ Detecção de falhas: sabe quando sensor cai
+  ✓ Sincronização: apenas a Gateway escreve, não todos os sensores
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ PARTE B: COMO O SISTEMA FUNCIONA
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. ARQUITETURA EM DETALHES (PARA INICIANTES)                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+3.1 Os 5 Componentes Principais
+
+  1️⃣ SENSOR (Cliente manual - o trabalhador)
+     O que faz: Um utilizador digita comandos para enviar medições
+     Exemplo: "Qual é a temperatura? 23.5°C"
+     Como funciona:
+       • Conecta à Gateway
+       • Diz "Olá, sou sensor-01"
+       • Gateway responde "OK, estás registado"
+       • Sensor pode começar a enviar dados
+     Tipo de comunicação: Bidirecional (envia e recebe)
+
+  2️⃣ DATASTREAM CLIENT (Cliente automático - o robô)
+     O que faz: Lê um ficheiro CSV com histórico de dados e envia tudo
+     Exemplo: Simula uma semana inteira de dados num minuto (para testes)
+     Como funciona:
+       • Lê ficheiro: dados/stream_dados.csv
+       • Para cada linha: cria um "sensor virtual" e envia
+       • Aguarda tecla do utilizador para começar (controlo)
+       • Útil para testar carga sem esperar 1 semana real
+     Tipo de comunicação: Bidirecional (mesmo que Sensor)
+
+  3️⃣ GATEWAY (Intermediário - o secretário)
+     O que faz: Recebe dados de Sensor/DataStream e passa para Servidor
+     Responsabilidades:
+       • Valida sensores conhecidos (lê sensores.csv)
+       • Recebe mensagens
+       • Organiza na fila (produtor-consumidor)
+       • Envia para servidor
+       • Deteta falhas (heartbeat)
+     Tipo de comunicação: Bidirecional (sensores ↔ gateway ↔ servidor)
+
+  4️⃣ SERVIDOR (Persistência - o contador da empresa)
+     O que faz: Recebe dados da Gateway e guarda em ficheiros
+     Responsabilidades:
+       • Recebe DATA da Gateway
+       • Valida integridade
+       • Escreve em dados/temperatura.txt, dados/humidade.txt, etc.
+       • (com lock para evitar corrupção)
+       • Envia ACK para confirmar
+     Tipo de comunicação: Bidirecional (gateway ↔ servidor)
+
+  5️⃣ SHARED PROTOCOL (Biblioteca comum - o dicionário)
+     O que faz: Define como as mensagens são estruturadas
+     Contém:
+       • Classe Mensagem: "que tipo? que sensor? que timestamp?"
+       • Serializador: "como passar JSON para objeto e vice-versa?"
+       • Tipos válidos: "que mensagens existem mesmo?"
+       • Códigos de erro: "o que é SENSOR_NOT_FOUND?"
+     É usado por: Sensor, DataStream, Gateway e Servidor
+
+
+3.2 Topologia de Conexões (a rede física)
+
+    ┌──────────────────┐              ┌──────────────────┐
+    │    SENSOR        │              │  DATASTREAM      │
+    │  (manual/repl)   │              │  (CSV automático)│
+    └────────┬─────────┘              └────────┬─────────┘
+             │ TCP:5000                        │ TCP:5000
+             │                                  │
+             └──────────────┬───────────────────┘
+                            │
+                     ┌──────▼──────┐
+                     │   GATEWAY   │
+                     │  (agregador)│
+                     └──────┬──────┘
+                            │ TCP:6000
+                     ┌──────▼───────┐
+                     │  SERVIDOR    │
+                     │(persistência)│
+                     └──────────────┘
+
+Como funciona a rede:
+  • Porta 5000: Gateway escuta sensores/datastream (múltiplas ligações)
+  • Porta 6000: Servidor escuta Gateway (uma única ligação, mas muitos dados)
+  • TCP garante: dados chegam por ordem, sem perdas, ou erro é reportado
+
+
+3.3 Tipos de Máquinas/Processos
+
+Na prática:
+  • SENSOR e DATASTREAM: podem estar no mesmo PC, em PCs diferentes, ou ligados por WiFi
+  • GATEWAY e SERVIDOR: normalmente correm em PCs diferentes (ou mesmo servidores)
+  • Todos usam .NET runtime (pode ser Windows, Linux, macOS)
+
+Para demonstração em aula:
+  • Terminal 1: Servidor (porta 6000)
+  • Terminal 2: Gateway (porta 5000, conecta ao Servidor)
+  • Terminal 3: Sensor (interativo)
+  • Terminal 4: DataStreamClient (automático)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. PROTOCOLO DE COMUNICAÇÃO (EXPLICADO PASSO A PASSO)                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+4.1 O que é um "Protocolo"?
+
+Protocolo = conjunto de regras que dois programas combinam para "conversar"
+
+Exemplo do mundo real:
+  • Quando atende o telefone, diz "Olá?"
+  • O outro responde "Olá, tudo bem?"
+  • Não diz "XQZP!!!!" (porque ninguém percebe)
+  • Ambos seguem as mesmas regras
+
+No nosso sistema:
+  • REGRA 1: Mensagens são JSON (texto estruturado)
+  • REGRA 2: Uma mensagem por linha (separadas por \n)
+  • REGRA 3: Sem mensagem = tabulação (sem \n) = erro
+
+
+4.2 Estrutura de uma Mensagem JSON
+
+Exemplo real:
+
+  {
+    "tipo": "DATA",
+    "sensor_id": "sensor-01",
+    "timestamp": "2026-04-19T10:30:45Z",
+    "payload": {
+      "tipo_dado": "temperatura",
+      "valor": 23.5
+    }
+  }
+
+O que significa cada campo:
+
+  "tipo": "DATA"
+    → Isto é uma medição (não é um erro, nem heartbeat, nem registo)
+
+  "sensor_id": "sensor-01"
+    → Quem está a falar? (qual sensor)
+
+  "timestamp": "2026-04-19T10:30:45Z"
+    → Quando foi isto recolhido? (formato ISO 8601, internacional)
+
+  "payload": {...}
+    → Os dados específicos (pode variar conforme o tipo de mensagem)
+
+  tipo_dado: "temperatura"
+    → Que tipo de medição? (temperatura, humidade, etc.)
+
+  valor: 23.5
+    → Qual é o valor? (número)
+
+
+4.3 Sete Tipos de Mensagens
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ FASE 1: REGISTO (sensor diz "olá, sou novo")                   │
+  ├─────────────────────────────────────────────────────────────────┤
+  │ → REGISTER (Sensor → Gateway)                                   │
+  │   {"tipo": "REGISTER", "sensor_id": "sensor-01", ...}           │
+  │   Significado: "Olá gateway, quero registar-me"                 │
+  │                                                                  │
+  │ ← REGISTER_OK (Gateway → Sensor)                                │
+  │   {"tipo": "REGISTER_OK", "sensor_id": "sensor-01", ...}        │
+  │   Significado: "Tudo bem, estás registado"                      │
+  │                                                                  │
+  │ ← REGISTER_ERR (Gateway → Sensor)                               │
+  │   {"tipo": "REGISTER_ERR", "sensor_id": "sensor-01", ...}       │
+  │   Significado: "Não, não te reconheço no sensores.csv"          │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ FASE 2: ENVIO DE DADOS (sensor envia medições)                  │
+  ├─────────────────────────────────────────────────────────────────┤
+  │ → DATA (Sensor → Gateway)                                       │
+  │   {"tipo": "DATA", "sensor_id": "sensor-01",                    │
+  │    "payload": {"tipo_dado": "temperatura", "valor": 23.5}}      │
+  │   Significado: "Eis uma medição de 23.5°C"                      │
+  │                                                                  │
+  │ ← DATA_ACK (Gateway → Sensor, depois Servidor → Gateway)        │
+  │   {"tipo": "DATA_ACK", "sensor_id": "sensor-01", ...}           │
+  │   Significado: "Recebi e guardei a tua medição"                 │
+  │                                                                  │
+  │   Fluxo completo:                                               │
+  │   Sensor → DATA → Gateway → DATA → Servidor                     │
+  │   Sensor ← DATA_ACK ← Gateway ← DATA_ACK ← Servidor             │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ FASE 3: HEARTBEAT (sensor prova que está vivo)                  │
+  ├─────────────────────────────────────────────────────────────────┤
+  │ → HEARTBEAT (Sensor → Gateway a cada 60 segundos)               │
+  │   {"tipo": "HEARTBEAT", "sensor_id": "sensor-01", ...}          │
+  │   Significado: "Olá! Ainda estou VIVO (timeout>"                │
+  │                                                                  │
+  │ ← HEARTBEAT_ACK (Gateway → Sensor)                              │
+  │   {"tipo": "HEARTBEAT_ACK", "sensor_id": "sensor-01", ...}      │
+  │   Significado: "Recebi, obrigado!"                              │
+  │                                                                  │
+  │   Quando não há heartbeat:                                      │
+  │   60+ segundos sem HEARTBEAT → Gateway marca sensor INATIVO     │
+  │   Dados de sensor INATIVO são rejeitados (segurança)            │
+  └─────────────────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ FASE 4: ERRO (mensagem inválida)                                │
+  ├─────────────────────────────────────────────────────────────────┤
+  │ ← ERROR (Servidor/Gateway → Sensor)                             │
+  │   {"tipo": "ERROR", "codigo": "INVALID_FORMAT", ...}            │
+  │   Significado: "Isto não é JSON válido"                         │
+  │                                                                  │
+  │   Códigos de erro possíveis:                                    │
+  │   • SENSOR_NOT_FOUND: "não tenho registo deste sensor"          │
+  │   • SENSOR_INACTIVE: "marque-se como inativo (sem heartbeat)"   │
+  │   • SERVER_UNAVAILABLE: "não consigo falar com o servidor"      │
+  │   • INVALID_FORMAT: "isto não é JSON"                           │
+  │   • INVALID_DATA_TYPE: "para temperatura, esperava um número"   │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+4.4 Linha do Tempo de uma Comunicação Completa
+
+Tempo real no Sensor:
+  T=00s:  Sensor conecta à Gateway
+  T=01s:  Sensor envia REGISTER → Gateway recebe
+  T=01s:  Gateway lê sensores.csv, valida sensor-01 existe
+  T=02s:  Gateway envia REGISTER_OK → Sensor recebe (pronto para enviar)
+  T=03s:  Sensor envia DATA (temp=23.5) → Gateway recebe
+  T=03s:  Gateway enfileira (BlockingCollection)
+  T=04s:  ConsumerWorker lê DATA da fila
+  T=04s:  Gateway envia DATA ao Servidor
+  T=04s:  Servidor recebe DATA
+  T=05s:  Servidor escreve em dados/temperatura.txt (com mutex)
+  T=05s:  Servidor envia DATA_ACK → Gateway recebe
+  T=05s:  Gateway envia DATA_ACK → Sensor recebe
+  T=06s:  Sensor sabe que a medição foi guardada com sucesso ✓
+
+Total: 6 segundos do registo à confirmação
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. FLUXOS DE DADOS DETALHADOS COM EXEMPLOS                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+5.1 Fluxo 1: Registo de um Novo Sensor
+
+Cenário: Um novo sensor sensor-01 conecta pela primeira vez
+
+    Sensor                      Gateway                    sensores.csv
+      │                           │                             │
+      ├──── REGISTER ────────────→ │                             │
+      │                           │ (lê ficheiro)               │
+      │                           ├────────────────────────────→│
+      │                           │ "sensor-01 existe?"         │
+      │                           │← "SIM, linha 1"             │
+      │                           │                             │
+      │     REGISTER_OK ←──────── │                             │
+      │   (pronto para enviar)    │                             │
+      └(agora pode mandar DATA)───→ ...próximo fluxo
+
+Validação no Gateway:
+  • Le sensores.csv (CSV com lista de sensores conhecidos)
+  • Se sensor_id encontrado → REGISTER_OK
+  • Se sensor_id não encontrado → REGISTER_ERR
+
+Após REGISTER_OK:
+  • Sensor passa para estado "REGISTADO"
+  • Gateway cria entrada na tabela de sensores ativos
+  • Inicia watchtimer de heartbeat (timeout 60s)
+
+
+5.2 Fluxo 2: Envio de Dados Entre Sensores
+
+Cenário: sensor-01 envia temperatura, depois sensor-02 envia humidade
+
+    Sensor-01                   Gateway                    Servidor
+       │                         │                           │
+       ├─DATA (temp=23.5)───────→│                           │
+       │                    [enfileira]                      │
+       │                         │─────DATA (temp)──────────→│
+       │                         │                      [lock]│
+       │                         │                    (escreve)│
+       │                         │←────DATA_ACK──────────────│
+       │←─DATA_ACK────────────── │                           │
+       │ (confirmado!)           │                           │
+       │                         │                           │
+    Sensor-02                   │                           │
+       │                         │                           │
+       ├─DATA (hum=65%)────────→│                           │
+       │                    [enfileira]                      │
+       │                         │─────DATA (hum)───────────→│
+       │                         │                      [lock]│
+       │                         │                    (escreve)│
+       │                         │←────DATA_ACK──────────────│
+       │←─DATA_ACK────────────── │                           │
+       │ (confirmado!)           │                           │
+
+
+Detalhes importantes:
+  • Cada sensor envia, mas Gateway agrupa
+  • Fila de bloqueio: se Servidor está lento, DATA fica em fila
+  • Lock (mutex) no Servidor: nunca dois dados escrevem simultaneamente
+  • Ordem é garantida: primeiro DATA de 01, depois de 02
+
+
+5.3 Fluxo 3: Heartbeat e Detecção de Falha
+
+Cenário: sensor-01 desaparece (servidor desliga)
+
+Sensor-01 (ligado)           Gateway (monitor)         Estado
+    │                           │ (espera 60s)
+    │                           │ last_sync[sensor-01] = agora
+    │                           │
+    ├─HEARTBEAT────────────────→│
+    │                       [recebe OK]
+    │                       last_sync[sensor-01] = agora
+    │←─HEARTBEAT_ACK───────────│
+    │                           │
+    [sensor desliga]            │
+                                │ [60s passam...]
+                                │ last_sync[sensor-01] > 60s?
+                                │ SIM → sensor INATIVO
+                                │
+    [sensor reloga]             │
+    ├─HEARTBEAT────────────────→│ (começa contador novamente)
+    │                           │ last_sync[sensor-01] = agora
+    │←─HEARTBEAT_ACK───────────│
+    │ (agora ativo de novo)
+
+Benefício:
+  • Sem heartbeat = sensor crashed, não enviar dados mais
+  • Com heartbeat novo = sensor reset e pronto
+
+
+5.4 Fluxo 4: Erro e Recuperação
+
+Cenário: sensor-01 envia JSON malformado
+
+    Sensor-01              Gateway              Servidor
+       │                    │                     │
+       ├─LIXO───────────→   │                     │
+       │           (não é JSON válido)
+       │                    ├ JSON.Parse() falha
+       │←─ERROR────────────│ {"codigo":
+       │                   │  "INVALID_FORMAT"}
+
+
+Cenário 2: Gateway não consegue conectar ao Servidor
+
+    Sensor-01              Gateway              Servidor
+       │                    │                     │
+       ├─DATA────────────→  │                     │
+       │             [enfileira]   [tenta conectar]
+       │                    │         X conexão recusada
+       │                    │    [retry em 5s]
+       │                    │         ✓ conecta!
+       │                    ├─DATA───────────────→│
+       │                    │←─DATA_ACK──────────│
+       │←─DATA_ACK────────── │
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ PARTE C: TÉCNICA AVANÇADA
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6. CADA MÓDULO E O QUE FAZ (REFERÊNCIA DE CÓDIGO)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+6.1 SharedProtocol (Biblioteca Comum)
+
+Localização: src/SharedProtocol/
+
+Arquivo 1: Mensagem.cs
+  O que é: Classe que representa UMA mensagem do protocolo
+  Responsabilidades:
+    • Validar que tipo é conhecido (REGISTER, DATA, HEARTBEAT, etc.)
+    • Garantir que sensor_id nunca é null (campo obrigatório)
+    • Validar timestamp está em formato ISO 8601
+    • Armazenar payload (dados específicos)
+
+  Métodos importantes:
+    • Construtor: valida tudo
+    • static CriarRegister(): factory method para criar REGISTER
+    • static CriarData(): factory method para criar DATA
+    • Propriedades: Tipo, SensorId, Timestamp, Payload
+
+Arquivo 2: MensagemSerializer.cs
+  O que é: Conversor JSON ↔ Objetos
+  Responsabilidades:
+    • Deserializar (JSON string → Mensagem object)
+      Passo a passo:
+        1. Recebe: "{\"tipo\":\"DATA\",\"sensor_id\":\"s1\", ...}"
+        2. Parse JSON
+        3. Valida campos obrigatórios
+        4. Cria objeto Mensagem
+        5. Retorna objeto pronto
+    • Serializar (Mensagem object → JSON string)
+      Passo a passo:
+        1. Recebe: novo Mensagem { ... }
+        2. Cria objeto anónimo com campos
+        3. Serializa para JSON
+        4. Retorna string
+
+  Métodos importantes:
+    • static Deserializar(string json): Mensagem
+    • static Serializar(Mensagem msg): string
+    • TratamentoDeErros: se JSON inválido → lança exceção
+
+Arquivo 3: TiposMensagem.cs
+  O que é: Lista oficial de tipos válidos
+  Conteúdo:
+    • const string REGISTER = "REGISTER"
+    • const string REGISTER_OK = "REGISTER_OK"
+    • const string REGISTER_ERR = "REGISTER_ERR"
+    • const string DATA = "DATA"
+    • const string DATA_ACK = "DATA_ACK"
+    • const string HEARTBEAT = "HEARTBEAT"
+    • const string HEARTBEAT_ACK = "HEARTBEAT_ACK"
+    • const string ERROR = "ERROR"
+
+Arquivo 4: CodigosErro.cs
+  O que é: Lista oficial de códigos de erro
+  Conteúdo:
+    • const string SENSOR_NOT_FOUND = "SENSOR_NOT_FOUND"
+    • const string SENSOR_INACTIVE = "SENSOR_INACTIVE"
+    • const string SERVER_UNAVAILABLE = "SERVER_UNAVAILABLE"
+    • const string INVALID_FORMAT = "INVALID_FORMAT"
+    • const string INVALID_DATA_TYPE = "INVALID_DATA_TYPE"
+
+
+6.2 Sensor (Cliente Interativo)
+
+Localização: src/Sensor/
+
+Arquivo 1: Program.cs (Main entry point)
+  O que faz:
+    1. Valida argumentos (IP, porta, sensor_id)
+    2. Cria instância de SensorClient
+    3. Chama IniciarAsync() ← aqui começa tudo
+    4. Mostra menu com opções
+
+  Menu de opcões:
+    • "1" → Enviar temperatura (pede valor ao utilizador)
+    • "2" → Enviar humidade
+    • "3" → Enviar qualidade do ar
+    • ... outros tipos
+    • "0" → Sair
+
+  Função MenuPrincipalAsync():
+    Loop enquanto sensor ativo:
+      • Mostra opcões
+      • Lê input = utilizador
+      • Chama ProcessarOpcaoAsync()
+
+  Função ProcessarOpcaoAsync():
+    • Recebe opção (1, 2, 3, ...)
+    • Se opção=1: pede "qual temperatura?"
+    • Utiliza ← input do utilizador
+    • Chama client.EnviarMedicaoAsync(tipo_dado="temperatura", valor=input)
+    • Aguarda resposta (bloqueante)
+
+
+Arquivo 2: SensorClient.cs (Lógica de ligação)
+  O que faz: Implementa protocolo do lado do sensor
+
+  Método IniciarAsync():
+    1. Conecta TCP à Gateway (IP:porta)
+    2. Valida conexão bem-sucedida
+    3. Chama RegistrarAsync()
+      • Envia REGISTER
+      • Aguarda REGISTER_OK ou REGISTER_ERR
+      • Se OK → passa para próximo passo
+      • Se ERR → lança exceção
+    4. Inicia HeartbeatLoopAsync() em thread background
+      • Envia HEARTBEAT a cada 60s
+      • Se gateway responde → sensor ainda ativo
+    5. Retorna ao caller (programa principal)
+
+  Método EnviarMedicaoAsync(tipo_dado, valor):
+    1. Cria objeto Mensagem com tipo=DATA
+    2. Serializa para JSON com MensagemSerializer
+    3. Envia pela rede (+ \n no final)
+    4. Aguarda resposta ← bloqueia aqui
+    5. Deserializa resposta
+    6. Valida que é DATA_ACK
+      • Se DATA_ACK → sucesso
+      • Se ERROR → reporta erro ao utilizador
+      • Se timeout → erro de ligação
+    7. Retorna (sucesso/erro)
+
+  Método HeartbeatLoopAsync():
+    Corre em thread separada (background):
+      Loop infinito:
+        • Aguarda 60 segundos
+        • Envia HEARTBEAT
+        • Aguarda HEARTBEAT_ACK
+        • Se falha → marca sensor OFFLINE
+        • Se sucesso → continua loop
+
+  Método ReceberMensagemAsync():
+    • Lê byte a byte até encontrar \n
+    • Junta tudo numa string
+    • Deserializa (JSON → Mensagem)
+    • Retorna Mensagem
+
+
+6.3 DataStreamClient (Automático por CSV)
+
+Localização: src/DataStreamClient/
+
+Arquivo 1: DataStreamReader.cs
+  O que faz: Lê ficheiro CSV e estrutura dados
+
+  Formato CSV esperado:
+    timestamp,sensor_id,tipo_dado,valor
+    2026-04-19T10:00:00Z,sensor-01,temperatura,23.5
+    2026-04-19T10:00:00Z,sensor-02,humidade,65
+    2026-04-19T10:01:00Z,sensor-01,temperatura,23.6
+    ...
+
+  Método CarregarAsync(caminhoFicheiro):
+    1. Abre ficheiro
+    2. Lê todas as linhas (skip primeira = header)
+    3. Para cada linha:
+       • ParsearLinha(linha)
+       • Valida campos
+       • Agrupa por sensor_id (ObterPorSensor)
+    4. Retorna Dictionary<string, List<Medicao>>
+       Exemplo:
+         { "sensor-01" → [temp:23.5, temp:23.6, ...],
+           "sensor-02" → [hum:65, hum:66, ...] }
+
+  Método ParsearLinha(linha):
+    1. Divide por "," em 4 partes
+    2. Extrai timestamp, sensor_id, tipo_dado, valor
+    3. Valida timestamp é ISO 8601
+    4. Converte valor para número (float)
+    5. Se falha → lança ParseException
+    6. Retorna estrutura Medicao
+
+  Método ObterPorSensor():
+    Agrupa medicões por sensor_id para envio paralelo
+
+
+Arquivo 2: Program.cs
+  O que faz: Orquestra envio de dados CSV
+
+  Função ResolverCaminhoFicheiro(caminho):
+    Problema: CSV pode estar em pastas diferentes conforme execução
+             (VS Code vs Visual Studio vs .NET CLI rodam de locais diferentes)
+    Solução:
+      1. Tenta caminho tal qual: ./dados/stream_dados.csv
+      2. Se não existe, tenta: ../../../dados/stream_dados.csv
+      3. Se não existe, tenta: C:\\...\\dados\\stream_dados.csv
+      4. Se nada funciona → erro
+
+  Main():
+    1. Valida argumentos (IP, porta, caminho_CSV)
+    2. Carrega CSV com DataStreamReader
+    3. Agrupa por sensor → criando um "virtual sensor" por sensor_id
+    4. **Aguarda tecla do utilizador** ← muito importante para controlo
+    5. Para cada sensor:
+       • Cria SensorClient (reutiliza mesma classe que Sensor)
+       • Chama IniciarAsync() (regista)
+       • Envia medições respeitando *timing relativo*
+         Exemplo:
+           CSV tem: t=10h00 temp=23, t=10h01 temp=23.5, t=10h02 hum=65
+           DataStream vai enviar tudo em 2 minutos (comprimido)
+           Mantém: (23.5-23)/(10h01-10h00) = delta entre sensores
+
+
+6.4 Gateway (Intermediário)
+
+Localização: src/Gateway/
+
+Arquivo 1: Program.cs (Core da Gateway)
+  O que faz: Orquestra agregação e encaminhamento
+
+  Função LerCSV(caminhoCSV):
+    • Abre sensores.csv
+    • Carrega lista de sensores válidos (sensor_id)
+    • Inicializa Dictionary<string, SensorInfo>
+      SensorInfo contém:
+        - sensor_id
+        - estado (ATIVO/INATIVO/MANUTENCAO)
+        - last_sync (último heartbeat)
+        - tcp_writer (stream para escrever para sensor)
+
+  Main():
+    1. Valida argumentos (porto, servidor_IP:porta, caminho_CSV)
+    2. Chama LerCSV() para carregar sensores válidos
+    3. Cria TcpListener na porta especificada
+    4. Chama AcceptClientsAsync():
+       While true:
+         • Aguarda novo cliente (TcpClient)
+         • Cria thread dedicada: HandleSensor(client)
+         • Volta a aguardar (não bloqueia outros)
+
+  Função HandleSensor(client):
+    Corre em thread dedicada por sensor:
+      While cliente conectado:
+        1. Recebe mensagem ← bloqueia até receber
+        2. Deserializa (JSON → Mensagem)
+        3. Valida sensor_id existe em sensores.csv
+        4. Se tipo == REGISTER:
+           • Valida sensor_id
+           • Responde REGISTER_OK ou REGISTER_ERR
+        5. Se tipo == DATA:
+           • Valida sensor está ativo (heartbeat recente)
+           • Enfileira em BlockingCollection
+           • Continua (não bloqueia)
+           • (ConsumerWorker vai processar depois)
+        6. Se tipo == HEARTBEAT:
+           • Atualiza last_sync[sensor_id] = now
+           • Envia HEARTBEAT_ACK
+           • Watchdog pode usar isto
+
+  BlockingCollection (Fila thread-safe):
+    • Sensor 1 envia DATA → enfileira
+    • Sensor 2 envia DATA → enfileira (sem bloquear Sensor 1)
+    • ConsumerWorker lê fila, processa 1 por 1
+    • Se Servidor está lento → fila cresce (buffer)
+    • Se Servidor responde rápido → fila vazia
+
+  Função ConsumerWorker():
+    Corre em thread dedicada:
+      While servidor ligado:
+        1. Toma item de fila (BlockingCollection.Take())
+           Bloqueia se fila vazia
+        2. Item é MESSAGE com tipo=DATA
+        3. Chama SendToServer(message)
+        4. Volta ao passo 1
+
+  Função SendToServer(message):
+    1. Serializa message → JSON
+    2. Envia ao Servidor (TcpClient pré-conectado)
+    3. Aguarda resposta ← bloqueia aqui
+    4. Deserializa resposta
+    5. Valida que é DATA_ACK
+    6. Reenvia DATA_ACK ao sensor original (HandleSensor tem acesso ao client)
+
+  Função WatchdogWorker():
+    Corre em thread separada a cada 10 segundos:
+      Para cada sensor em Dictionary:
+        • Calcula: tempo_agora - last_sync
+        • Se > 60s e estado == ATIVO:
+          → Muda estado para INATIVO
+          → Log: "sensor-01 não responde, marcado inativo"
+        • Se timeout permanece > 120s:
+          → Muda para MANUTENCAO
+          → Rejeita novos DATA deste sensor
+
+
+6.5 Servidor (Persistência)
+
+Localização: src/Servidor/
+
+Arquivo 1: Program.cs (Core do Servidor)
+  O que faz: Recebe e persiste dados
+
+  Main():
+    1. Valida argumento (porto)
+    2. Cria diretório dados/ se não existir
+    3. Cria Dictionary<string, Mutex> de mutexes por tipo
+       Exemplo:
+         { "temperatura" → mutex_temp,
+           "humidade" → mutex_hum,
+           ... }
+    4. Cria TcpListener na porta especificada
+    5. Chama AcceptGatewaysAsync():
+       While true:
+         • Aguarda nova conexão de Gateway
+         • Cria thread: HandleGateway(client)
+         • Volta a aguardar
+
+  Função HandleGateway(client):
+    Corre em thread dedicada por gateway:
+      While gateway conectada:
+        1. Recebe mensagem
+        2. Deserializa
+        3. Se tipo == DATA:
+           • Extrai tipo_dado (temperatura, humidade)
+           • Extrai valor (23.5)
+           • Chama PersistirMedicao(tipo_dado, sensor_id, valor, timestamp)
+           • Envia DATA_ACK de volta
+
+  Função PersistirMedicao(tipo_dado, sensor_id, valor, timestamp):
+    Passo crítico com sincronização!
+    
+    1. Obtém mutex para este tipo_dado:
+       Mutex m = dicionario_mutexes[tipo_dado]
+    
+    2. Entra secção crítica (lock):
+       lock (m) {  ← apenas 1 thread de cada vez neste bloco
+         
+         3. Abre ficheiro dados/{tipo_dado}.txt em modo append
+         4. Escreve linha: "{timestamp}|{sensor_id}|{valor}\n"
+         5. Fecha ficheiro
+         
+       }  ← liberta lock
+    
+    Por quê mutex por tipo?
+      Se dois sensores enviam temperatura simultaneamente:
+        Sensor 1: PersistirMedicao(tipo="temperatura", val=23.5)
+        Sensor 2: PersistirMedicao(tipo="temperatura", val=24.0)
+      
+      SEM mutex:
+        Thread 1: abre ficheiro
+        Thread 2: abre ficheiro
+        Thread 1: escreve "23.5"
+        Thread 2: escreve "24.0"
+        Problema: podem estar misturados ou falta uma linha
+      
+      COM mutex:
+        Thread 1: lock(mutex_temp) → escreve "23.5" → liberta
+        Thread 2: aguarda lock(mutex_temp) → escreve "24.0" → liberta
+        Garantido: ambas escrevem, ordem preservada
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7. CONCORRÊNCIA E SINCRONIZAÇÃO (CONCEITOS AVANÇADOS)                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+7.1 O que é Concorrência?
+
+Definição: Múltiplas operações acontecem "ao mesmo tempo" (ou parecem)
+
+Exemplo real:
+  • 2 clientes no banco
+  • Ambos levantam 100€ da mesma conta que tem 100€
+  • Cliente A: "quanto tenho?" resposta: 100€
+  • Cliente B: "quanto tenho?" resposta: 100€
+  • Cliente A: levanta 100€
+  • Cliente B: levanta 100€
+  • Erro: conta tinha 100€, levantaram 200€!
+
+No nosso sistema:
+  • Sensor 1 escreve "23.5" para temperatura
+  • Sensor 2 escreve "24.0" para temperatura
+  • Se acontecer simultaneamente (mesmo millisegundo):
+    → Pode corromper ficheiro
+    → Pode perder uma medição
+
+
+7.2 Solução 1: Mutex (Ainda Simplificando)
+
+Mutex = "mutual exclusion lock" = exclusão mútua
+
+Como funciona (café com fila):
+  • Há 1 café com 1 caixa
+  • Cliente A chega, entra, paga
+  • Cliente B chega, aguarda fila
+  • Cliente A sai
+  • Cliente B entra
+  → nunca 2 pagam ao mesmo tempo
+
+
+No código C#:
+  object mutex = new object();
+  
+  lock (mutex) {
+    // apenas 1 thread entra aqui de cada vez
+    escreverFicheiro();
+  }
+  // thread seguinte entra agora
+
+Em profundidade no nosso código:
+  • Cada tipo de dado tem seu próprio mutex
+  • Temperatura → mutex_temp
+  • Humidade → mutex_hum
+  • Quando persistir temperatura:
+    lock (mutex_temp) { escrever_temperatura.txt }
+  • Quando persistir humidade:
+    lock (mutex_hum) { escrever_humidade.txt }
+  • Dois sensores podem escrever temperaturas e humidade de forma paralela
+    (porque têm mutexes diferentes!)
+
+
+7.3 Solução 2: BlockingCollection (Fila Ordenada)
+
+Problema: Gateway recebe 100 DATA/segundo, mas Servidor só processa 10/segundo
+
+Solução sem fila: Servidor pede espera a cada ligação
+  → Sensor aguarda resposta
+  → Gateway aguarda resposta
+  → Campo de sensores está ocupado, novos não conseguem conectar
+  → Sistema congela
+
+Solução com fila:
+  Sensor → DATA → Gateway → [enfileira numediatamente]
+                           └ Sensor recebe OK imediatamente
+                             Gateway processa fila 1 por 1 para Servidor
+                             Servidor escreve no ritmo dele
+
+BlockingCollection:
+  • Estrutura thread-safe de fila
+  • Add(item) → coloca no fim
+  • Take() → tira do início (bloqueia se vazia)
+  • Se 100 itens na fila:
+    • Gateway.Add() → retorna imediatamente
+    • ConsumerWorker.Take() → pega 1, processa, volta
+
+Vantagem:
+  • Desacoplamento: Gateway não aguarda Servidor
+  • Buffer: se pico de 100 dados, fila aguarda suavemente
+  • Ordem: primeira a entrar = primeira a sair
+
+
+7.4 Solução 3: Threads Dedicadas
+
+Problema: Gateway tem 50 sensores conectados. Se processo na thread principal,
+apenas 1 sensor é servido de cada vez.
+
+Solução:
+  • Cada sensor que conecta → nova thread
+  • Cada thread: HandleSensor(client)
+    While cliente conectado:
+      RecebeMensagem
+      Processa
+  • Muitos sensores → muitas threads
+  • Sistema operativo alterna entre threads (context switching)
+  → cada sensor "parece" ter tempo dedicado
+
+
+7.5 Sincronização em Resumo
+
+Três técnicas principais usadas:
+
+  ☑ Mutex (Exclusão mútua)
+    → Quando: acesso exclusivo a recurso compartilhado (ficheiro)
+    → Como: lock (mutex) { ... }
+    → Usado em: Servidor escrever ficheiro
+
+  ☑ BlockingCollection (Fila com espera)
+    → Quando: múltiplos produtores, um consumidor
+    → Como: queue.Add(), queue.Take()
+    → Usado em: Gateway enfileira DATA
+
+  ☑ Threads dedicadas
+    → Quando: múltiplos clientes simultâneos
+    → Como: new Thread(() => { ... }).Start()
+    → Usado em: Gateway e Servidor (1 thread por cliente)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 8. PERSISTÊNCIA DE DADOS (COMO FICA NO DISCO)                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+8.1 Estrutura de Ficheiros
+
+    dados/
+    ├── temperatura.txt        (medições de temperatura)
+    ├── humidade.txt           (medições de humidade)
+    ├── qualidade_ar.txt       (índice de ar)
+    ├── ruido.txt              (níveis de ruído)
+    ├── pm25.txt               (partículas finas)
+    ├── pm10.txt               (partículas maiores)
+    ├── luminosidade.txt       (níveis de luz)
+    ├── imagem.txt             (refs de imagens)
+    └── servidor.log           (log de operações)
+
+
+8.2 Formato de Dados
+
+Ficheiro: dados/temperatura.txt
+  2026-04-19T10:00:00Z|sensor-01|23.5
+  2026-04-19T10:00:05Z|sensor-02|22.1
+  2026-04-19T10:00:10Z|sensor-01|23.6
+  2026-04-19T10:00:15Z|sensor-02|22.0
+
+Partes:
+  Timestamp      │ Sensor ID  │ Valor
+  ISO 8601       │ Identificador│ Número
+  Sempre UTC     │ Único      │ Tipo específico
+
+Benefícios do formato:
+  • Legível por humanos (debug fácil)
+  • Fácil de parsear (split por |)
+  • Timestamps ordenados (permite sorting)
+  • Importável em Excel/Python/R para análise
+
+
+8.3 Fluxo de Escrita
+
+Servidor recebe: DATA com tipo_dado="temperatura", valor=25.0
+
+  1. Valida payload (é realmente um número?)
+  2. Obtém mutex para "temperatura"
+  3. Entra secção crítica: lock(mutex)
+     a. Abre dados/temperatura.txt (append mode)
+     b. Escreve: "2026-04-19T10:30:45Z|sensor-01|25.0\n"
+     c. Fecha ficheiro (automático)
+  4. Liberta mutex
+  5. Envia DATA_ACK para Gateway
+
+
+8.4 Logs de Operação
+
+Ficheiro: dados/servidor.log
+  [2026-04-19 10:30:45.123] [INFO] Servidor iniciado na porta 6000
+  [2026-04-19 10:30:46.456] [INFO] Gateway conectada de 127.0.0.1:65432
+  [2026-04-19 10:30:47.789] [INFO] DATA recebida - sensor-01 temperatura: 23.5
+  [2026-04-19 10:30:48.012] [INFO] Persistida em dados/temperatura.txt
+  [2026-04-19 10:30:49.345] [ERROR] Sensor-99 INATIVO
+
+
+Ficheiro: gateway.log
+  [2026-04-19 10:30:45.123] [INFO] Gateway iniciada na porta 5000
+  [2026-04-19 10:30:46.456] [INFO] Conectou ao Servidor em 127.0.0.1:6000
+  [2026-04-19 10:30:47.789] [INFO] sensor-01 registado
+  [2026-04-19 10:30:48.012] [INFO] DATA de sensor-01 enfileirada
+  [2026-04-19 10:30:49.345] [INFO] sensor-02 não responde (timeout)
+
+
+Função dos logs:
+  • Auditoria (o que aconteceu?)
+  • Debug (onde falhou?)
+  • Monitorização (está tudo OK?)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 9. EXECUÇÃO PRÁTICA: DEMONSTRAÇÃO PASSO A PASSO                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+9.1 Pré-requisitos
+
+Hardware:
+  • 1 PC com pelo menos 2GB RAM (para 4 terminais)
+
+Software:
+  • .NET SDK 8.0 ou posterior
+    Download: https://dotnet.microsoft.com/download
+    
+  • Visual Studio Code (opcional, mas recomendado)
+    Download: https://code.visualstudio.com
+    Extension: "C# (Dev Kit)" → pesquisar em Extensions
+
+  • Terminal (PowerShell no Windows, bash no Mac/Linux)
+
+
+Ficheiros necessários:
+  • sensores.csv (lista de sensores conhecidos)
+    Localização: raiz do projeto
+    Formato:
+      sensor_id,tipo_dados
+      sensor-01,temperatura
+      sensor-02,humidade
+
+  • dados/stream_dados.csv (histórico para teste)
+    Localização: dados/
+    Formato:
+      timestamp,sensor_id,tipo_dado,valor
+      2026-04-19T10:00:00Z,sensor-01,temperatura,23.5
+      ...
+
+
+9.2 Procedimento Completo
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 1: Build da Solução (compilar)
+═══════════════════════════════════════════════════════════════════════════════
+
+No terminal (abrir PowerShell):
+  cd c:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos
+  dotnet build SharedProtocol.sln -c Debug
+
+O que faz:
+  • Compila SharedProtocol
+  • Compila Sensor
+  • Compila Gateway
+  • Compila Servidor
+  • Compila DataStreamClient
+  • Gera .exe em bin/Debug
+
+Esperado:
+  ✓ Build completed successfully.
+  (0 warnings)
+
+Se houver erro:
+  • Verificar .NET SDK instalado: dotnet --version
+  • Verificar ficheiros não estão bloqueados
+  • Tentar: dotnet clean → dotnet build
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 2: Terminal 1 – Iniciar Servidor
+═══════════════════════════════════════════════════════════════════════════════
+
+Novo terminal PowerShell (Ctrl+Shift+`)
+  cd c:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos
+  dotnet run --project src/Servidor/Servidor.csproj -- 6000
+
+O que faz:
+  • Inicia 1 processo: Servidor
+  • Escuta na porta TCP 6000
+  • Aguarda Gateway conectar
+
+Esperado:
+  [INFO] Servidor iniciado na porta 6000
+  [INFO] Aguardando conexão de Gateway...
+
+Terminal fica bloqueado (normal). Deixar ligado.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 3: Terminal 2 – Iniciar Gateway
+═══════════════════════════════════════════════════════════════════════════════
+
+Novo terminal PowerShell (Ctrl+Shift+`)
+  cd c:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos
+  dotnet run --project src/Gateway/Gateway.csproj -- 5000 127.0.0.1:6000 ./sensores.csv
+
+Argumentos:
+  • 5000 = porta Gateway (sensores conectam aqui)
+  • 127.0.0.1:6000 = IP:porta Servidor
+  • ./sensores.csv = ficheiro com sensores válidos
+
+O que faz:
+  • Inicia 1 processo: Gateway
+  • Carrega sensores.csv
+  • Conecta ao Servidor (127.0.0.1:6000)
+  • Escuta na porta 5000
+
+Esperado:
+  [INFO] Gateway carregada
+  [INFO] Sensores válidos: sensor-01, sensor-02, ...
+  [INFO] Conectado ao Servidor em 127.0.0.1:6000
+  [INFO] Ouvindo na porta 5000...
+
+Terminal fica bloqueado (normal). Deixar ligado.
+
+No Terminal 1 (Servidor), deve aparecer:
+  [INFO] Gateway conectada de 127.0.0.1:XXXXX
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 4: Terminal 3 – Sensor Manual (Interativo)
+═══════════════════════════════════════════════════════════════════════════════
+
+Novo terminal PowerShell (Ctrl+Shift+`)
+  cd c:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos
+  dotnet run --project src/Sensor/Sensor.csproj -- 127.0.0.1 5000 sensor-01
+
+Argumentos:
+  • 127.0.0.1 = IP da Gateway
+  • 5000 = porta Gateway
+  • sensor-01 = identificador do sensor
+
+O que faz:
+  • Conecta à Gateway
+  • Regista-se (REGISTER)
+  • Mostra menu
+
+Esperado:
+  Conectando a 127.0.0.1:5000...
+  [INFO] Registado como sensor-01
+  
+  === MENU ===
+  1 - Enviar Temperatura
+  2 - Enviar Humidade
+  3 - Enviar Qualidade do Ar
+  ...
+  0 - Sair
+  
+  Escolha:
+
+No terminal de Gateway, deve aparecer:
+  [INFO] sensor-01 registado
+  [INFO] sensor-01 heartbeat recebido
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 5: Teste Manual (sensor interativo)
+═══════════════════════════════════════════════════════════════════════════════
+
+No Terminal 3 (Sensor), escrever:
+  1
+  [Enter]
+
+Pergunta:
+  Qual é a temperatura? _
+
+Responder:
+  23.5
+  [Enter]
+
+Esperado:
+  ✓ Medição enviada e confirmada
+
+No Terminal de Gateway:
+  [INFO] DATA de sensor-01 (temperatura: 23.5) enfileirada
+  [INFO] DATA encaminhada ao Servidor
+
+No Terminal de Servidor:
+  [INFO] DATA recebida - sensor-01: temperatura 23.5
+  [INFO] Persistida em dados/temperatura.txt
+
+Verificar ficheiro:
+  cat dados/temperatura.txt
+  
+  Resultado:
+    2026-04-19T10:30:45Z|sensor-01|23.5
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 6: Terminal 4 – DataStreamClient (Automático)
+═══════════════════════════════════════════════════════════════════════════════
+
+Novo terminal PowerShell (Ctrl+Shift+`)
+  cd c:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos
+  dotnet run --project src/DataStreamClient/DataStreamClient.csproj -- 127.0.0.1 5000 dados/stream_dados.csv
+
+O que faz:
+  • Lê dados/stream_dados.csv
+  • Agrupa por sensor
+  • **Aguarda tecla antes de começar** ← ponto crítico
+
+Esperado:
+  Carregando dados de dados/stream_dados.csv...
+  ✓ Carregados XXX registos
+  
+  Sensores encontrados:
+  - sensor-01 (YY medições)
+  - sensor-02 (ZZ medições)
+  - ...
+  
+  Pressione qualquer tecla para iniciar stream...
+  _
+
+Este é o ponto de controlo! (útil para demonstração)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 7: Iniciar Streaming
+═══════════════════════════════════════════════════════════════════════════════
+
+No Terminal 4, pressionar [Space] ou [Enter]
+
+O que faz:
+  • Começa a enviar dados do CSV
+  • Respeita timing relativo entre medições
+  • Todos os sensores "falam" simultaneamente
+
+Esperado flow:
+  Terminal 4: Enviando dados... {contador incrementa}
+  
+  Terminal de Gateway: 
+    [INFO] DATA de sensor-01 enfileirada x100
+    [INFO] DATA de sensor-02 enfileirada x100
+    ...
+  
+  Terminal de Servidor:
+    [INFO] DATA recebida - sensor-01: XXX
+    [INFO] DATA recebida - sensor-02: XXX
+    ...
+    (muito rápido, muitas linhas)
+  
+  Terminal 3 (Sensor): heartbeat contínuo em background
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 8: Verificar Persistência
+═══════════════════════════════════════════════════════════════════════════════
+
+Abrir novo terminal PowerShell:
+  cd dados
+  ls
+  
+Resultado:
+  temperatura.txt
+  humidade.txt
+  qualidade_ar.txt
+  ...
+
+Ver conteúdo:
+  cat temperatura.txt | head -20
+  
+Resultado:
+  2026-04-19T10:00:00Z|sensor-01|23.5
+  2026-04-19T10:00:05Z|sensor-02|22.1
+  2026-04-19T10:00:10Z|sensor-01|23.6
+  ...
+
+Ver estatísticas:
+  (cat temperatura.txt | measure -line).count
+  
+Resultado: 1000 linhas → 1000 medições guardadas ✓
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 9: Teste de Robustez (opcional)
+═══════════════════════════════════════════════════════════════════════════════
+
+Enquanto tudo corre:
+
+Teste 1: Matar Sensor
+  No Terminal 3: Ctrl+C
+  
+  Esperado:
+    Gateway: [WARN] sensor-01 desconectado
+    Após 60s: [INFO] sensor-01 marcado INATIVO
+    Servidor: (continua recebendo de sensor-02)
+
+Teste 2: Restartar Sensor
+  No Terminal 3: dotnet run ... (de novo)
+  
+  Esperado:
+    sensor-01 regista novamente
+    Gateway reconhece
+    Pode enviar data novamente
+
+Teste 3: Matar Gateway
+  No Terminal 2: Ctrl+C
+  
+  Esperado:
+    Sensor: "Gateway não disponível"
+    Servidor: "Gateway desconectada"
+    (ConnectionReset ou similar)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+PASSO 10: Parar Tudo (Limpeza)
+═══════════════════════════════════════════════════════════════════════════════
+
+Nos 4 terminais:
+  Ctrl+C (1x em cada)
+
+Esperar 1-2 segundos até logs pararem.
+
+O que faz:
+  • Fecha todas as conexões
+  • Fecha ficheiros
+  • Liberta portas 5000 e 6000
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ PARTE D: DECISÕES E JUSTIFICAÇÕES
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 10. POR QUE ESTA ARQUITETURA? (ALTERNATIVAS ANALISADAS)                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+10.1 A Grande Questão: Qual seria a melhor solução?
+
+Resposta: Depende do contexto!
+
+Precisamos de:
+  • Contexto de negócio (qual é o objetivo?)
+  • Restrições técnicas (budget, hardware, tempo?)
+  • Requisitos não-funcionais (latência, throughput, segurança?)
+
+Neste projeto (académico):
+  • Objetivo: aprender Sistemas Distribuídos
+  • Budget: baixo (PC pessoal)
+  • Tempo: semestre (4-5 meses)
+  • Requisitos: demonstrar registro, dados, heartbeat, ACK
+
+→ Logo, solução simples é a certa!
+
+
+10.2 Alternativa 1: Protocol Buffers (em vez de JSON)
+
+O que muda:
+  • Mensagens em formato binário (comprimido)
+  • Mais pequenas (-70% de tamanho)
+  • Parse mais rápido
+
+Dados JSON:
+  {"tipo":"DATA","sensor_id":"sensor-01","timestamp":"2026-04-19T10:30:45Z","payload":{"tipo_dado":"temperatura","valor":23.5}}
+  Tamanho: ~160 bytes
+
+Dados Protocol Buffers:
+  (dados binários, ilegível)
+  Tamanho: ~50 bytes
+
+Quando usar:
+  ✓ Redes lentas (IoT com 2G)
+  ✓ Muitas medições (milhões/dia)
+  ✓ Custo de dados importante
+  
+  ✗ Neste projeto: sem vantagem (localhost/ethernet)
+
+Desvantagem neste contexto:
+  ✗ Menos legível (não consegue ver JSON em hexdump)
+  ✗ Mais complexidade de schema
+  ✗ Não aprender protocolo ao "ver" mensagens
+
+
+10.3 Alternativa 2: MQTT (em vez de TCP+JSON)
+
+O que muda:
+  • Usa broker (servidor centralizador)
+  • QoS (Quality of Service) para garantia de entrega
+  • Tópicos em vez de tipos de mensagem
+
+Arquitetura MQTT:
+  Sensor 1 ──┐
+  Sensor 2 ──┼──→ MQTT Broker ←── Subscritor (Servidor)
+  Sensor N ──┘
+
+Características MQTT:
+  • QoS 0: Fire-and-forget (pode perder)
+  • QoS 1: At-least-once (pode duplicar)
+  • QoS 2: Exactly-once (robusto, lento)
+  • Last Will and Testament: mensagem se cliente cai
+
+Quando usar:
+  ✓ Múltiplos subscribers (1 mensagem → N recetores)
+  ✓ Redes inestáveis (WiFi fraco)
+  ✓ Necessidade de QoS forte
+  
+  ✗ Neste projeto: overhead sem benefício
+
+Desvantagem neste contexto:
+  ✗ Necessidade de broker externo (Mosquitto)
+  ✗ Mais complexidade operacional
+  ✗ Aprende menos sobre protocolo de aplicação
+
+
+10.4 Alternativa 3: Kafka (para larga escala)
+
+O que muda:
+  • Broker especializado em stream de eventos
+  • Distribuição por tópicos/partições
+  • Replicação automática
+
+Arquitetura Kafka:
+  Sensors ──→ Kafka Broker ──→ Consumer Groups
+             (3+ replicas)      (escalável)
+
+Quando usar:
+  ✓ 1 milhão+ de eventos/segundo
+  ✓ Múltiplos consumers (análise em tempo real)
+  ✓ Necessidade de replay (guardar histórico)
+  
+  ✗ Neste projeto: overkill
+
+Desvantagem neste contexto:
+  ✗ Kafka requer cluster (3+ máquinas)
+  ✗ Java/JVM intensivo
+  ✗ Curva de aprendizagem steep
+  ✗ Não é IoT típico (mais para Big Data)
+
+
+10.5 Alternativa 4: TLS + Certificados (segurança)
+
+O que muda:
+  • Encriptação de dados em trânsito
+  • Autenticação mútua (servidor prova identidade)
+  • Proteção contra man-in-the-middle
+
+Quando usar:
+  ✓ Dados sensíveis (saúde, finanças)
+  ✓ Redes públicas (internet)
+  ✓ Conformidade (GDPR, HIPAA)
+  
+  ✗ Neste projeto: sem dados sensíveis
+
+Desvantagem neste contexto:
+  ✗ Overhead computacional (+10-20% latência)
+  ✗ Gestão de certificados complexa
+  ✗ Não é requisito da disciplina
+  ✗ Distrai do foco em Sistemas Distribuídos
+
+
+10.6 Alternativa 5: Base de Dados (em vez de ficheiros)
+
+O que muda:
+  • Dados em PostgreSQL/MySQL em vez de .txt
+  • Queries SQL para análise
+  • Transações ACID
+
+Quando usar:
+  ✓ Análise complexa (queries)
+  ✓ Integridade transacional
+  ✓ Múltiplos acessos simultâneos (ACID)
+  
+  ✗ Neste projeto: não precisa
+
+Desvantagem neste contexto:
+  ✗ Dependência externa (PostgreSQL server)
+  ✗ Mais complexo para setup e deploy
+  ✗ Não demonstra melhor os conceitos base
+  ✗ Ficheiros texto são mais "observáveis"
+
+
+10.7 Resumo: Decisões Tomadas
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ DECISÃO                  │ RAZÃO                                          │
+├────────────────────────────────────────────────────────────────────────────┤
+│ JSON (não Protobuf)      │ Legibilidade para debug e aprendizagem        │
+│ TCP (não UDP)            │ Confiabilidade, ordem garantida               │
+│ Gateway (não peer-to-peer)│ Simplicidade de demonstração e escalabilidade│
+│ Ficheiros (não DB)       │ Zero dependências, fácil setup                │
+│ Sem TLS                  │ Foco em protocolo aplicação, não criptografia │
+│ Threads (não async/await)│ Clareza no código para iniciantes             │
+│ Mutex (não outros)       │ Simples, bem testado, suficiente              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 11. LIMITAÇÕES ATUAIS (HONESTIDADE TÉCNICA)                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Honestidade técnica = admitir o que não funciona bem
+
+11.1 Limitações Intencionais (não são bugs)
+
+Sem TLS/Encriptação:
+  ❌ Dados viajam em plaintext pela rede
+  ❌ Qualquer um na rede pode ler medições
+  ❌ Qualquer um pode falsificar mensagens
+  
+  Justificação:
+    • Este é um sistema educacional local
+    • Não tem dados sensíveis
+    • TLS adiciona complexidade sem valor pedagógico
+  
+  Se fosse produção:
+    → Seria obrigatório TLS
+    → Cada cliente teria certificado
+
+
+Sem Broker Dedicado:
+  ❌ Apenas 1 gateway conecta a 1 servidor
+  ❌ Se gateway cai, todo o sistema cai
+  ❌ Sem replicação (dados em 1 máquina)
+  
+  Justificação:
+    • Simplicidade de setup (localhost)
+    • Foco em conceitos, não operação
+  
+  Se fosse produção:
+    → Usar Kafka/RabbitMQ
+    → Múltiplas gateways
+    → Replicação
+
+
+Sem Autenticação:
+  ❌ Qualquer "sensor-01" consegue conectar
+  ❌ Sem verificação de credenciais
+  ❌ Sem controlo de acesso
+  
+  Justificação:
+    • Ambiente controlado (aula)
+    • Foco em protocolo, não segurança
+  
+  Se fosse produção:
+    → OAuth2 / JWT tokens
+    → API keys por sensor
+
+
+Persistência em Ficheiro:
+  ❌ Sem transações ACID
+  ❌ Sem queries SQL
+  ❌ Sem índices para pesquisa rápida
+  ❌ Não escalável: > 1GB lê tudo à memória
+  
+  Justificação:
+    • Simplicidade (sem dependências)
+    • Observabilidade (ver dados com cat)
+    • Suficiente para escala académica
+  
+  Se fosse produção:
+    → PostgreSQL/MongoDB
+    → Replicação automática
+    → Backup automático
+
+
+11.2 Limitações Descobertas (learnings do projeto)
+
+Contexto Switching Overhead:
+  ❌ Muitas threads = muito contexto switching
+  ❌ Com 100 sensores = 100 threads na gateway
+  ❌ CPU gasta tempo em troca de contexto
+  
+  Solução futuro:
+    → Usar async/await em vez de threads puras
+    → Thread pool managido
+
+
+Escalabilidade:
+  ❌ 1 gateway com 10.000 sensores concorrentes
+  ❌ Cada sensor = 1 thread
+  ❌ 10.000 threads = muito overhead
+  
+  Limite prático: ~1.000 sensores simultâneos por máquina
+  
+  Solução futuro:
+    → Event-driven architecture (Reactor pattern)
+    → epoll/IOCP em vez de threads por conexão
+
+
+Sem Persistência de Fila:
+  ❌ Se gateway crashes, fila perde dados
+  ❌ BlockingCollection é apenas em memória
+  
+  Solução futuro:
+    → Persistir fila em disco (RocksDB)
+    → Replay se gateway reinicia
+
+
+11.3 Trade-offs Aceitáveis
+
+Aqui explicamos por que aceitamos certas limitações:
+
+  Simplicidade vs Robustez:
+    Escolhemos SIMPLICIDADE
+    Razão: Fácil compreensão e debug
+    ↔
+    Robustez seria: mais mutex, retry, timeouts complexos
+
+  Performance vs Legibilidade:
+    Escolhemos LEGIBILIDADE
+    Razão: Aprender é objetivo principal
+    ↔
+    Performance seria: Protobuf, async/await, connection pooling
+
+  Segurança vs Rapidez de Setup:
+    Escolhemos RAPIDEZ DE SETUP
+    Razão: Ambiente controlado (aula)
+    ↔
+    Segurança seria: TLS, OAuth2, certificados
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 12. MELHORIAS IMPLEMENTADAS NO ENCERRAMENTO DO PROJETO                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+12.1 What Was Missing / What Needed Fixing
+
+Problema 1: DataStreamClient Não Existia
+  Situação: Apenas Sensor manual existia
+  Impacto: Testes apenas interativos (lento, manual)
+  Solução: Criar DataStreamClient
+    ✓ Lê CSV com dados históricos
+    ✓ Simula múltiplos sensores simultaneamente
+    ✓ Permite testar carga sem esperar 1 semana
+    ✓ Reutiliza SensorClient (sem duplicação)
+
+
+Problema 2: Caminhos de Ficheiro Quebravam
+  Situação: sensores.csv só funcionava em certa pasta
+  Impacto: "File not found" em diferentes contextos (VS Code, CLI, Visual Studio)
+  Solução: Implementar ResolverCaminhoFicheiro()
+    • Tenta múltiplas localizações em orden
+    • Fallback automático
+    • Funciona seja qual for diretório de execução
+
+
+Problema 3: Streaming Começava Automaticamente
+  Situação: DataStreamClient fechava antes de começar stream
+  Impacto: Difícil de demonstrar em aula
+  Solução: Adicionar "press any key to start"
+    ✓ Utilizador tem controlo
+    ✓ Tempo para monitorizar logs
+    ✓ Demonstração mais clara
+
+
+Problema 4: Código Morto & Comentários Desatualizados
+  Situação: Múltiplas refactors deixaram código antigo
+  Impacto: Confusão ao ler
+  Solução: Limpeza completa
+    ✓ Remover métodos não usados
+    ✓ Remover comentários antigos
+    ✓ Deixar apenas essencial
+
+
+Problema 5: Warnings de Nullability
+  Situação: Build tinha dezenas de warnings
+  Impacto: Difícil saber se há erros reais
+  Solução: Corrigir nullability
+    ✓ Adicionar ? onde apropriado
+    ✓ Adicionar validações de null
+    ✓ Build agora: 0 warnings
+
+
+12.2 Melhorias Específicas Implementadas
+
+Melhorimento 1: DataStreamClient Completo
+  O que foi adicionado:
+    • Classe DataStreamReader
+    • CSV parsing robusto
+    • Timing relativo entre sensores
+    • Error handling
+
+  Código antes:
+    (não existia)
+  
+  Código depois:
+    - LeCSV(), ParsearLinha(), ObterPorSensor()
+    - Tratamento de exceções
+    - Logging
+
+
+Melhorimento 2: Resolução de Caminhos
+  Código antes:
+    string csv_path = args[2];  // assume que está correto
+    StreamReader file = new StreamReader(csv_path);
+  
+  Código depois:
+    string csv_path = ResolverCaminhoFicheiro(args[2]);
+    // tenta múltiplas localizações
+    StreamReader file = new StreamReader(csv_path);
+
+
+Melhorimento 3: Sincronização de Controlo
+  Código antes:
+    StreamReader csv = new StreamReader(path);
+    // começa imediatamente
+  
+  Código depois:
+    Console.WriteLine("Pressione qualquer tecla para iniciar stream...");
+    Console.ReadKey();  // aguarda
+    StreamReader csv = new StreamReader(path);
+
+
+Melhorimento 4: Logging Consistente
+  Antes:
+    Console.WriteLine("Dados"); // informação perdida em histórico
+  
+  Depois:
+    logger.LogInformation("Dados");  // vai para ficheiro + console
+
+
+12.3 Checklist de Entrega
+
+  ✓ Build sem erros
+  ✓ Build sem warnings
+  ✓ Fluxo REGISTER funciona
+  ✓ Fluxo DATA funciona
+  ✓ Fluxo HEARTBEAT funciona
+  ✓ Fluxo DATA_ACK completo
+  ✓ Detecção de falha (inatividade) funciona
+  ✓ Persistência em ficheiros OK
+  ✓ Logs de operação OK
+  ✓ Documentação atualizada
+  ✓ Código limpo (morto removido)
+  ✓ Nullability resolvida
+  ✓ DataStreamClient funciona
+  ✓ Caminhos relativos resolvem
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 13. ROADMAP PARA O FUTURO (EXTENSÕES POSSÍVEIS)                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+13.1 Curto Prazo (1-2 semanas)
+
+Adicionar Web Dashboard:
+  • ASP.NET Core API
+  • React/Vue frontend
+  • Mostrar dados em tempo real
+  • Gráficos de temperatura ao longo do tempo
+
+  Benefício: Visualizar dado, não só ficheiro texto
+
+
+Adicionar Persistência em DB:
+  • PostgreSQL backend
+  • Data/hora indexada
+  • Queries para análise
+  • Backup automático
+
+  Benefício: Dados mais robusto, queries
+
+
+Adicionar TLS Opcional:
+  • SSL certificates
+  • Encriptação em trânsito
+  • Autenticação de servidor
+
+  Benefício: Aprender segurança
+
+
+13.2 Médio Prazo (1-2 meses)
+
+Refatorar para Async/Await:
+  • Eliminar threads diretas
+  • Usar thread pool managido
+  • Async all the way
+
+  Benefício: Melhor escalabilidade
+
+
+Implementar Múltiplas Gateways:
+  • Gateway load balancing
+  • Failover automático
+  • Replicação entre gateways
+
+  Benefício: Alta disponibilidade
+
+
+Adicionar MQTT Opcional:
+  • Suporte para MQTT + TCP
+  • Subscribers múltiplos
+  • QoS levels
+
+  Benefício: Padrão da indústria
+
+
+13.3 Longo Prazo (Full Production)
+
+Migrar para Kafka:
+  • Stream processing framework
+  • Real-time analytics
+  • Distributed architecture
+
+Adicionar Rate Limiting:
+  • DDoS protection
+  • Fair resource allocation
+
+Implementar Clustering:
+  • Automatic discovery
+  • Consensus protocol (Raft/Paxos)
+  • Data replication
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ PARTE E: REFERÊNCIA TÉCNICA
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 14. GLOSSÁRIO DE CONCEITOS (EXPLICAÇÕES DETALHADAS)                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ACK (Acknowledgement / Confirmação):
+  O que é: Mensagem que confirma recepção de dado anterior
+  Exemplo:
+    Sensor: "Escrevi temperatura!"
+    Servidor: "ACK - recebi e guardei"
+  Por quê é importante:
+    → Garante entrega ("delivery guarantee")
+    → Sensor sabe que não precisa reenviar
+    → Se timeout sem ACK, pode-se reenviar
+  Usado em: TCP, email, protocolos de mensagens
+
+
+BlockingCollection (Fila com Espera):
+  O que é: Estrutura de dados thread-safe que bloqueia se vazia
+  Como funciona:
+    add(item)  → coloca no fim
+    take()     → tira do início (bloqueia se vazia)
+  Por quê é importante:
+    → Desacoplamento de produtor/consumidor
+    → Se consumidor lento, buffer cresce
+    → Não "perde" dados
+  Usado em: Gateway na fila de DATA
+
+
+Concorrência:
+  O que é: Múltiplas operações acontecem "ao mesmo tempo"
+  Realidade: Em 1 CPU podem ser intercaladas (context switching)
+             Em múltiplas CPUs, realmente simultâneas
+  Por quê é complexo:
+    → Order de execução indeterministha
+    → Race conditions (quem escreve primeiro?)
+    → Deadlocks (ambos aguardam um ao outro)
+  Usado em: Todo o sistema (múltiplos sensores)
+
+
+Datagram (UDP):
+  O que é: Pacote de dados sem conexão
+  Características:
+    • Fire-and-forget
+    • Pode perder pacotes
+    • Rápido (sem handshake)
+    • Sem ordering guarantee
+  Contraste com TCP:
+    • TCP = confiável, ordenado, lento
+    • UDP = rápido, não confiável
+  Quando usar:
+    • Streaming de vídeo (perder 1 frame OK)
+    • Online gaming (latência importante)
+    • Neste projeto: NÃO (UDP poderia perder medições)
+
+
+Deadlock (Impasse):
+  O que é: Situação em que 2+ threads aguardam um ao outro infinitamente
+  Exemplo:
+    Thread A: espera por mutex1, segura mutex2
+    Thread B: espera por mutex2, segura mutex1
+    Resultado: ambas bloqueadas forever
+  Como evitar:
+    • Sempre adquirir mutexes na mesma ordem
+    • Usar timeout em locks
+    • Ferramentas de detecção
+  Usado em: Sincronização complexa
+
+
+Endpoint (Socket):
+  O que é: Combinação IP:porto que identifica única conexão
+  Exemplo: 127.0.0.1:5000
+           └─IP   └─porta
+  Por quê é importante:
+    → Múltiplos serviços podem rodar no mesmo PC (diferentes portas)
+    → Múltiplos clientes podem conectar a mesmo serviço (diferentes portos altos)
+  Termo técnico: "socket address" ou "endpoint"
+
+
+Failover (Falha e Recuperação):
+  O que é: Mudança automática para sistema redundante quando principal falha
+  Fluxo:
+    • Sistema A está ativo
+    • Sistema A falha
+    → Sistema B assume automaticamente
+    → Clientes redirecionam para B
+  Neste projeto:
+    ❌ Não implementado (não há redundância)
+    ✓ Seria com 2 servidores + load balancer
+
+
+Firewall:
+  O que é: Componente que filtra tráfego de rede
+  Funciono:
+    • Regra: permite porta 22 (SSH)
+    • Regra: nega porta 3306 (MySQL)
+    • Padrão: nega tudo, abre explicitamente
+  Neste projeto:
+    • Firewall pode bloquear portas 5000, 6000
+    • Solução: adicionar exceção no firewall
+
+
+Handshake (Aperto de mão):
+  O que é: Troca inicial de mensagens para estabelecer conexão
+  TCP Handshake:
+    1. Cliente: SYN (sincronização)
+    2. Servidor: SYN-ACK
+    3. Cliente: ACK
+    Resultado: conexão estabelecida
+  Protocolo nosso:
+    1. Sensor: REGISTER
+    2. Gateway: REGISTER_OK
+    Resultado: sensor registado
+
+
+Heartbeat (Batida de Coração):
+  O que é: Mensagem periódica que prova "estou vivo"
+  Intervalo: Normalmente 30-60 segundos
+  Uso:
+    • Detecção de falha (se heartbeat para)
+    • Keepalive de conexão (evita timeout)
+    • Monitorização de saúde
+  Neste projeto:
+    • Sensor envia HEARTBEAT a cada 60s
+    • Se não recebido → marcado INATIVO
+
+
+IPC (Inter-Process Communication):
+  O que é: Comunicação entre processos
+  Tipos:
+    • Pipes: processos no mesmo PC
+    • Sockets: processos em PCs diferentes (TCP/UDP)
+    • Shared Memory: acesso direto a memória (perigoso)
+    • Message Queues: fila para troca de mensagens
+  Neste projeto:
+    • Usamos Sockets (TCP) para IPC entre máquinas
+
+
+JSON (JavaScript Object Notation):
+  O que é: Formato de dados baseado em texto
+  Exemplo:
+    {
+      "tipo": "DATA",
+      "sensor_id": "sensor-01",
+      "valor": 23.5
+    }
+  Vantagens:
+    • Legível por humanos
+    • Fácil de parsear
+    • Linguagem agnóstico
+  Desvantagens:
+    • Mais verboso que binário
+    • Ainda precisa validação (não à prova de tipos)
+  Alternativas:
+    • XML (mais verboso)
+    • Protocol Buffers (mais pequeno)
+    • MessagePack (binário, comprimido)
+
+
+Latency (Latência):
+  O que é: Tempo que demora uma mensagem de A a B
+  Medida: millisegundos
+  Exemplos:
+    • TCP local: 1ms
+    • TCP rede local: 5-10ms
+    • TCP internet: 50-200ms
+    • TCP satellite: 500ms++
+  Neste projeto:
+    • Latência ≈ 1-10ms (localhost/rede local)
+    • Se for internet: 50-200ms
+
+
+Lock (Tranca):
+  O que é: Mecanismo que impede acesso simultâneo
+  Uso em C#:
+    lock (obj) {
+      // apenas 1 thread aqui
+    }
+  Equivalentes em outras línguas:
+    • Java: synchronized
+    • Python: threading.Lock()
+    • C++: std::mutex
+  Neste projeto:
+    • lock(mutex) para escrever ficheiros
+
+
+Mutex (Mutual Exclusion):
+  O que é: Objeto que representa uma tranca
+  Diferença de lock:
+    • lock = sintaxe, usa implicitamente Monitor
+    • Mutex = classe explícita
+  Neste projeto:
+    • Dictionary<string, Mutex> por tipo de dado
+
+
+Network Protocol (Protocolo de Rede):
+  O que é: Conjunto de regras para comunicação
+  Camadas (OSI model):
+    1. Física: cabos
+    2. Enlace: MAC addresses
+    3. Rede: IP addresses
+    4. Transporte: TCP/UDP
+    5. Sessão: autenticação
+    6. Apresentação: encriptação
+    7. Aplicação: HTTP, SMTP, nosso protocolo
+  Neste projeto:
+    • Camada 4: TCP
+    • Camada 7: nossa Mensagem (JSON)
+
+
+Packet Loss (Perda de Pacotes):
+  O que é: Situação em que pacote se perde no caminho
+  Percentagem: 1-2% em rede caseira, até 10% em WiFi fraco
+  Consequências:
+    • TCP retransmite automaticamente
+    • UDP: aplicação nota "data missing"
+  Como minimizar:
+    • Usar TCP (instead of UDP)
+    • Usar QoS em routers
+    • Reduzir distância
+  Neste projeto:
+    • TCP garante zero loss (retransmite automático)
+
+
+Process (Processo):
+  O que é: Programa a rodar com seu próprio espaço de memória
+  Exemplos neste projeto:
+    • Servidor.exe (1 processo)
+    • Gateway.exe (1 processo)
+    • Sensor.exe (1 processo)
+    • DataStreamClient.exe (1 processo)
+  Total: 4 processos simultâneos
+  Diferença de Thread:
+    • Thread: compartilha memória com outras threads
+    • Processo: memória isolada
+
+
+Queue (Fila):
+  O que é: Estrutura FIFO (First In, First Out)
+  Operações:
+    • Enqueue: adicionar fim
+    • Dequeue: tirar do início
+  Não thread-safe:
+    Queue<T> q = new Queue<T>();
+  Thread-safe:
+    ConcurrentQueue<T> q = new ConcurrentQueue<T>();
+    BlockingCollection<T> b = new BlockingCollection<T>();
+  Neste projeto:
+    • BlockingCollection para fila de DATA
+
+
+Race Condition (Corrida de Dados):
+  O que é: Situação em que resultado depende da ordem de execução
+  Exemplo:
+    Variável compartilhada: count = 5
+    Thread A: count = count + 1  (lê 5, escreve 6)
+    Thread B: count = count + 1  (concorrente)
+    
+    Resultado esperado: count = 7
+    Resultado possível: count = 6 (perdeu 1)
+    
+    Por quê?
+      T1: read(count) → 5
+      T2: read(count) → 5
+      T1: write(6)
+      T2: write(6)
+    Resultado: escrita de T2 sobrescreve T1
+  Como evitar:
+    • Usar locks/mutex
+    • Usar variáveis atômicas
+    • Arquitetura sem partilha de estado
+  Neste projeto:
+    • Mutex em cada tipo evita race conditions
+
+
+Redundância:
+  O que é: Ter múltiplos componentes para caso de falha
+  Exemplos:
+    • 2 Servidores (um toma-se falha)
+    • 3 replicas de dado (pode perder 1)
+    • 2 roteadores (switchover automático)
+  Benefício: Alta disponibilidade
+  Custo: duplicação de hardware/software
+  Neste projeto:
+    ❌ Sem redundância (1 servidor, 1 gateway)
+    ✓ Seria com cluster
+
+
+Scalability (Escalabilidade):
+  O que é: Capacidade de suportar crescimento
+  Tipos:
+    • Vertical: mais poderoso this máquina (mais CPU, RAM)
+    • Horizontal: mais máquinas
+  Neste projeto:
+    • Vertical: limpar ode threads, otimizar código
+    • Horizontal: ter múltiplos servidores, replicação
+
+
+Serialization (Serialização):
+  O que é: Converter objeto em stream (normalmente texto/bytes)
+  Fluxo:
+    Mensagem objeto → JSON string → bytes → rede
+    ← desserialização
+    bytes → JSON string → Mensagem objeto
+  Razão:
+    • Objetos vivem só em memória
+    • Para enviar rede/guardar disco: tornar texto/bytes
+  Neste projeto:
+    • MensagemSerializer: Mensagem ↔ JSON
+
+
+SQL (Structured Query Language):
+  O que é: Linguagem para interrogar banco de dados
+  Exemplo:
+    SELECT * FROM temperatura WHERE sensor_id = 'sensor-01'
+    → retorna todas as medições de sensor-01
+  Características:
+    • Poderosa para análise
+    • Índices para busca rápida
+    • ACID transactions
+  Neste projeto:
+    ❌ Sem SQL (apenas ficheiros)
+    ✓ Seria com PostgreSQL
+
+
+State (Estado):
+  O que é: Informação que descreve situação atual
+  Estados possíveis de sensor:
+    • REGISTADO: está a rodar
+    • INATIVO: sem heartbeat > 60s
+    • MANUTENCAO: falha persistente
+  Transições:
+    REGISTADO ──60s sem HB──> INATIVO
+    INATIVO ───nova HB───> REGISTADO
+  Importância:
+    • Determinar se sensor pode enviar DATA
+    • Detectar falhas
+
+
+TCP (Transmission Control Protocol):
+  O que é: Protocolo de transporte confiável
+  Características:
+    • Orientado a conexão (3-way handshake)
+    • Entrega garantida (retransmite se erro)
+    • Ordering guarantee (pacotes em ordem)
+    • Flow control (não sobrecarrega receptor)
+  Overhead: mais lento que UDP
+  Alternativa: UDP (rápido, não confiável)
+  Neste projeto:
+    • TCP (precisamos confiabilidade)
+
+
+Thread:
+  O que é: Linha de execução dentro de um processo
+  Características:
+    • Compartilha memória com outras threads
+    • Tem seu próprio stack
+    • Context switching (SO alterna threads)
+  Vantagens:
+    • Ligero (mais leve que processo)
+    • Comunicação fácil (memória partilhada)
+  Desvantagens:
+    • Race conditions (cuidado com compartilha)
+    • Deadlocks possível
+  Neste projeto:
+    • Gateway: 1 thread por sensor conectado
+    • Servidor: 1 thread por gateway conectada
+
+
+Timeout (Tempo de Espera Máximo):
+  O que é: Duração máxima para aguardar evento
+  Exemplos:
+    • No sistema: "aguarda heartbeat, timeout 60s"
+    • Se 60s passam sem heartbeat: marca inativo
+  Valores típicos:
+    • TCP: 30 segundos
+    • Heartbeat: 30-60 segundos
+    • HTTP: 5-30 segundos
+  Importância:
+    • Impede "hang forever"
+    • Detecta componentes falhados
+  Neste projeto:
+    • Heartbeat timeout = 60s
+
+
+UDP (User Datagram Protocol):
+  O que é: Protocolo de transporte rápido mas não confiável
+  Características:
+    • Sem conexão (envia e esquece)
+    • Pode perder pacotes
+    • Sem ordering guarantee
+    • Muito rápido
+  Quando usar:
+    • Streaming (vídeo, áudio)
+    • Online gaming
+    • DNS
+    • Quando pode-se permitir perda
+  Quando NÃO usar:
+    • Dados criticos (nossa aplicação)
+  Neste projeto:
+    • TCP (UDP poderia perder medições)
+
+
+Watchdog (Cão de Guarda):
+  O que é: Componente que monitora e reage a inatividade
+  Função:
+    • Tira "pulso" de componente (heartbeat)
+    • Se não responde por timeout: marca falha
+    • Pode restartar ou alertar
+  Neste projeto:
+    • WatchdogWorker() na Gateway
+    • Monitora ultimo heartbeat por sensor
+    • Marca INATIVO após 60s
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 15. GUIA DE CÓDIGO "SABER O CÓDIGO DE COR"                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+15.1 Localização Rápida de Funcionalidade
+
+Se quiser aprender "como regista sensor":
+  1. Ir a: src/Sensor/SensorClient.cs
+  2. Procurar: RegistrarAsync()
+  3. Ler comentários no método
+  4. Seguir chamadas de método (Ctrl+Click)
+  5. Voltar e ler cuidadosamente
+
+Se quiser aprender "como persiste dados":
+  1. Ir a: src/Servidor/Program.cs
+  2. Procurar: PersistirMedicao()
+  3. Ver que usa lock(mutex[tipo_dado])
+  4. Ver que escreve em dados/{tipo_dado}.txt
+  5. Entender sincronização necessária
+
+
+15.2 Rastreamento de Mensagem Completa
+
+Seguir um DATA de sensor até ficheiro:
+
+1️⃣ ORIGEM: Sensor cria e envia
+   Arquivo: src/Sensor/SensorClient.cs :: EnviarMedicaoAsync()
+   
+   Linha: msg = new Mensagem(tipo="DATA", sensor_id, payload, timestamp)
+   Linha: json = MensagemSerializer.Serializar(msg)
+   Linha: writer.WriteLine(json)  // envia com \n
+
+2️⃣ RECEÇÃO NA GATEWAY: Gateway recebe
+   Arquivo: src/Gateway/Program.cs :: HandleSensor()
+   
+   Linha: msg = ReceberMensagem()  // bloqueia até receber
+   Linha: if (msg.Tipo == "DATA") { EnfileiraDados(msg) }
+
+3️⃣ ENFILEIRAMENTO: DATA fica em fila
+   Arquivo: src/Gateway/Program.cs :: HandleSensor()
+   
+   Linha: datosqueue.Add(msg)  // BlockingCollection
+
+4️⃣ PROCESSAMENTO: ConsumerWorker processa fila
+   Arquivo: src/Gateway/Program.cs :: ConsumerWorker()
+   
+   Linha: msg = datosqueue.Take()  // pega da fila
+   Linha: SendToServer(msg)  // encaminha ao servidor
+
+5️⃣ ENVIO AO SERVIDOR: Gateway envia ao Servidor
+   Arquivo: src/Gateway/Program.cs :: SendToServer()
+   
+   Linha: server_writer.WriteLine(json)  // envia
+
+6️⃣ RECEÇÃO NO SERVIDOR: Servidor recebe
+   Arquivo: src/Servidor/Program.cs :: HandleGateway()
+   
+   Linha: msg = ReceberMensagem()
+
+7️⃣ PERSISTÊNCIA: Servidor grava em ficheiro
+   Arquivo: src/Servidor/Program.cs :: PersistirMedicao()
+   
+   Linha: tipo = msg.Payload["tipo_dado"]  // ex: "temperatura"
+   Linha: file_mutex = mutexes[tipo]
+   Linha: lock (file_mutex) { escrever em dados/{tipo}.txt }
+
+
+15.3 Índice de Classe
+
+SharedProtocol.cs
+  └─ Mensagem: classe que representa UMA mensagem
+     ├─ Propriedades: Tipo, SensorId, Timestamp, Payload
+     ├─ Construtor: valida campos
+     ├─ static CriarRegister(): factory
+     ├─ static CriarData(): factory
+     
+MensagemSerializer.cs
+  └─ Serialização JSON
+     ├─ static Deserializar(string): Mensagem
+     ├─ static Serializar(Mensagem): string
+
+TiposMensagem.cs
+  └─ Constantes de tipos
+     ├─ REGISTER
+     ├─ DATA
+     ├─ HEARTBEAT
+     ├─ ERROR
+
+SensorClient.cs
+  └─ Lógica de Sensor
+     ├─ IniciarAsync(): conecta + regista + heartbeat
+     ├─ RegistrarAsync(): fluxo REGISTER
+     ├─ EnviarMedicaoAsync(): fluxo DATA
+     ├─ HeartbeatLoopAsync(): thread de heartbeat
+     ├─ ReceberMensagemAsync(): lê linha com \n
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 16. PERGUNTAS TÉCNICAS PROVÁVEIS (E RESPOSTAS)                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+16.1 CONCORRÊNCIA
+
+P: "Como garantem que duas threads não escrevem no mesmo ficheiro ao mesmo tempo?"
+A: Cada tipo de dado (temperatura, humidade, etc.) tem seu próprio Mutex.
+   Quando 2 sensores enviam temperatura:
+     Thread 1: lock(mutex_temp) { escreve temp1 } liberta
+     Thread 2: lock(mutex_temp) { escreve temp2 }  aguardava
+   Resultado: escrita atômica por tipo, ordem preservada
+
+
+P: "Se houver 100 sensores, significa 100 threads na Gateway?"
+A: Sim. Um thread por conexão ativa (HandleSensor corre em thread dedicada).
+   Isto é aceitável até ~1000 threads. Para mais:
+   → Refatorar para async/await (multiplexing)
+   → Usar thread pool inteligente
+   Vantagem do design atual: fácil de compreender
+
+
+P: "O que é BlockingCollection?"
+A: Fila thread-safe que bloqueia se vazia.
+   
+   Produtor (HandleSensor):
+     datosqueue.Add(msg)  // nunca bloqueia, sempre cabe
+   
+   Consumidor (ConsumerWorker):
+     msg = datosqueue.Take()  // bloqueia se vazia, retorna quando chega
+   
+   Vantagem: Desacoplamento automático, sem busy-wait
+
+
+16.2 PROTOCOLO
+
+P: "Por que JSON e não binário?"
+A: JSON tem vantagens para aprendizagem:
+   • Legível em hexdump/cat/telnet (debug fácil)
+   • Fácil de testar manualmente
+   • Erros de formato visíveis
+   
+   Binário (Protocol Buffers) seria melhor em produção:
+   • -70% de tamanho
+   • Parse mais rápido
+   Mas neste projeto: JSON é melhor para ensino
+
+
+P: "Como garantem entrega de dados?"
+A: Fluxo garantido:
+   Sensor → DATA → Gateway → DATA → Servidor
+           ← DATA_ACK ← Gateway ← DATA_ACK ← Servidor
+   
+   Sensor não marca sucesso até receber DATA_ACK.
+   Se timeout sem ACK: pode reenviar (ou reportar erro).
+
+
+P: "Como detetam sensor inativo?"
+A: Heartbeat + Watchdog:
+   1. Sensor envia HEARTBEAT cada 60s
+   2. Gateway regista last_sync = agora
+   3. WatchdogWorker verifica cada 10s:
+        se agora - last_sync > 60s → marca INATIVO
+   4. Gateway rejeita DATA de sensores INATIVO
+
+
+P: "E se um sensor envia DATA e depois cra instantaneamente?"
+A: Dados já estão enfileirados, serão processados.
+   Gateway: "Recebi DATA, enfileirei, sensor pode crashar"
+   ConsumerWorker: processa fila normalmente
+   Resultado: dados guardados mesmo se sensor morreu
+
+
+16.3 ARQUITETURA
+
+P:"Porque separar em 5 módulos e não fazer tudo num?"
+A: Separação de responsabilidades:
+   • Sensor: apenas enviar medições (cliente)
+   • DataStreamClient: apenas simular dados (testes)
+   • Gateway: apenas agregar (intermediário)
+   • Servidor: apenas persistir (storage)
+   • SharedProtocol: apenas definir contrato
+   
+   Benefícios:
+   → Cada módulo testável independentemente
+   → Reutilização (ex: DataStreamClient reutiliza SensorClient)
+   → Fácil de remover/atualizar um módulo
+
+
+P: "Por que Gateway? Por que não Sensor direto a Servidor?"
+A: Gateway oferece:
+   • Agregação: 100 sensores → 1 fila → 1 escritor
+   • Detecção de falha: heartbeat centralizado
+   • Escalabilidade: múltiplas gateways possível
+   • Simplificação: servidor não precisa lidar com 100 conexões
+   
+   Sem gateway: cada sensor → thread no servidor, caos
+
+
+16.4 SEGURANÇA
+
+P: "Os dados estão encriptados?"
+A: Não. TCP plain-text.
+   Conseqüência: qualquer um na rede vê dados.
+   Justificação: ambiente educacional, sem dados sensíveis.
+   Em produção: TLS obrigatório.
+
+
+P: "Qualquer sensor consegue conectar?"
+A: Qualquer. Sem autenticação.
+   Proteção: Gateway valida sensor_id contra sensores.csv.
+   Mau ator: pode fazer "sensor-99", Gateway rejeita.
+   Mas não há password.
+   
+   Em produção: OAuth2 / API keys / certificados.
+
+
+16.5 PERFORMANCE
+
+P: "Quantos dados por segundo aguenta?"
+A: Teste empírico (~benchmark):
+   • Sensor isolado: ~100 DATA/s (bloqueado por I/O)
+   • 10 sensores em paralelo: ~500 DATA/s total
+   • Gateway + Servidor (localhost): ~1000 DATA/s
+   
+   Limitações:
+   • I/O disco: ~50MB/s (limite físico)
+   • Cada DATA ≈ 200 bytes → 250k DATA/s teórico
+   
+   Prático: ~1000-5000 DATA/s antes de degradação
+
+
+P: "Qual é a latência (tempo sensores → ficheiro)?"
+A: Medida empírica:
+   • Sensor → Gateway: ~1ms (localhost TCP)
+   • Gateway → Servidor: ~1ms
+   • Servidor → ficheiro: ~5ms (I/O)
+   Total: ~7ms (aceitável)
+
+
+16.6 BUGS & EDGE CASES
+
+P: "E se ficheiro de CSV não existe?"
+A: ResolverCaminhoFicheiro() tenta múltipos caminhos.
+   Se nenhum funciona: exceção com mensagem clara.
+   Utilizador vê "Ficheiro não encontrado em X locais"
+
+
+P: "E se sensores.csv está corrompido?"
+A: ParsearLinha() falha, exceção capturada, mensagem de erro.
+   Utilizador vê "Linha inválida em sensores.csv:XXX"
+
+
+P: "E se disco fica cheio?"
+A: Escrita falha, ficheiro.txt incomplet zero.
+   Servidor deveria dar erro, log registado.
+   Atualmente: sem tratamento especial
+   (melhoramento futuro: check espaço disco antes)
+
+
+P: "E se sensores.csv tem duplicados?"
+A: Dictionary sobreescreve (último ganha).
+   Não é erro, apenas comportamento.
+   Melhoramento futuro: validar duplicados
+
+
+═══════════════════════════════════════════════════════════════════════════════
+ FIM DO GUIÃO COMPLETO
+═══════════════════════════════════════════════════════════════════════════════
+
+Documento compilado: 19 de Abril de 2026
+Versão: 1.0 - COMPLETA E UNIFICADA
+Confidencialidade: Educacional (Público)
+
+Última atualização: Incorporação de aa.txt, comparacao.txt, melhorias.txt
+Informação preservada: 100% (sem removals)
+Detalhamento: ULTRA (para iniciantes)
+
+═══════════════════════════════════════════════════════════════════════════════
