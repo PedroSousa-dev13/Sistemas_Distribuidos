@@ -396,15 +396,6 @@ Servidor (Persistência)
 
 ---
 
-## 📧 Contactos
-
-Para dúvidas ou feedback sobre este projeto:
-
-- **Professor 1:** hparedes@utad.pt
-- **Professor 2:** tiagu.m.pinto@gmail.com
-
----
-
 ## 📄 Informações
 
 - **Linguagem:** C# 9.0
