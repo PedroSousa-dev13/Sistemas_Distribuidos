@@ -35,6 +35,8 @@ namespace Gateway
         private static StreamReader serverReader;
         private static string serverEndpoint;
         private static string csvPath;
+        private static string gatewayId;
+
         private static readonly object logLock = new object();
         private static readonly object serverLock = new object();
         private static bool isServerConnected = false;
@@ -50,6 +52,8 @@ namespace Gateway
             int listenPort = int.Parse(args[0]);
             serverEndpoint = args[1];
             csvPath = args[2];
+            gatewayId = $"gateway-{listenPort}";
+
 
             ExibirBannerInicial(listenPort, serverEndpoint, csvPath);
 
@@ -283,6 +287,8 @@ namespace Gateway
                         isServerConnected = false;
                         return false;
                     }
+                    msg.Payload["gateway_id"] = gatewayId;
+
 
                     string json = MensagemSerializer.Serializar(msg) + "\n";
                     byte[] data = Encoding.UTF8.GetBytes(json);
@@ -376,169 +382,167 @@ namespace Gateway
             NetworkStream stream = client.GetStream();
             var reader = new StreamReader(stream, new UTF8Encoding(false));
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+
             bool registered = false;
             string sensorId = null;
             string zona = "Desconhecida";
-            
+
+            // ID único do gateway baseado na porta local
+
             try
             {
                 while (true)
                 {
                     string line = reader.ReadLine();
                     if (line == null) break;
-                    
+
                     Mensagem msg;
                     try
                     {
                         msg = MensagemSerializer.Deserializar(line);
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Log($"❌ Erro ao deserializar mensagem: {ex.Message}. Linha: {line}");
                         continue;
                     }
-                    
+
                     sensorId = msg.SensorId;
-                    
+
                     switch (msg.Tipo)
                     {
                         case TiposMensagem.REGISTER:
+
                             csvMutex.WaitOne();
-                            string code = CodigosErro.SENSOR_NOT_FOUND;
-                            string description = "Sensor não encontrado no sistema";
-                            bool wasActive = false;
                             bool exists = sensors.ContainsKey(sensorId);
+                            bool wasActive = false;
+
                             if (exists)
                             {
                                 zona = sensors[sensorId].Zona;
                                 wasActive = sensors[sensorId].Estado == "ativo";
-                                code = null;
+
                                 sensors[sensorId].Estado = "ativo";
                                 sensors[sensorId].LastSync = DateTime.UtcNow;
                                 EscreverCSV();
-                                description = wasActive
-                                    ? "Sensor já se encontrava ativo"
-                                    : "Sensor reativado com sucesso";
                             }
                             csvMutex.ReleaseMutex();
-                            
-                            if (code == null)
+
+                            if (exists)
                             {
                                 registered = true;
+
                                 var response = new Mensagem(
                                     TiposMensagem.REGISTER_OK,
                                     sensorId,
                                     new Dictionary<string, object>
                                     {
-                                        ["tipos_dados"] = sensors[sensorId].TiposDados
+                                        ["tipos_dados"] = sensors[sensorId].TiposDados,
+                                        ["gateway_id"] = gatewayId
                                     },
-                                    DateTime.Now.ToString("o")
+                                    DateTime.UtcNow.ToString("o")
                                 );
+
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
-                                Log(wasActive
-                                    ? $"✅ [REGISTO] Sensor '{sensorId}' confirmado como ativo! (Zona: {zona})"
-                                    : $"✅ [REGISTO] Sensor '{sensorId}' reativado e registado com SUCESSO! (Zona: {zona})");
                             }
                             else
                             {
-                                var response = new Mensagem(TiposMensagem.REGISTER_ERR, sensorId, new Dictionary<string, object>
-                                {
-                                    ["error_code"] = code,
-                                    ["description"] = description
-                                }, DateTime.UtcNow.ToString("o"));
+                                var response = new Mensagem(
+                                    TiposMensagem.REGISTER_ERR,
+                                    sensorId,
+                                    new Dictionary<string, object>
+                                    {
+                                        ["error_code"] = CodigosErro.SENSOR_NOT_FOUND,
+                                        ["description"] = "Sensor não encontrado"
+                                    },
+                                    DateTime.UtcNow.ToString("o")
+                                );
+
                                 writer.WriteLine(MensagemSerializer.Serializar(response));
-                                Log($"❌ [REGISTO REJEITADO] Sensor '{sensorId}': {code}");
                             }
+
                             break;
 
                         case TiposMensagem.DATA:
+
+                            if (!registered)
                             {
-                                if (registered)
-                                {
-                                    if (!isServerConnected)
+                                var error = new Mensagem(
+                                    TiposMensagem.ERROR,
+                                    sensorId,
+                                    new Dictionary<string, object>
                                     {
-                                        var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
-                                            new Dictionary<string, object> { ["error_code"] = CodigosErro.SERVER_UNAVAILABLE },
-                                            DateTime.UtcNow.ToString("o"));
-                                        writer.WriteLine(MensagemSerializer.Serializar(error));
-                                        Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': Servidor indisponível");
-                                    }
-                                    else
-                                    {
-                                        csvMutex.WaitOne();
-                                        bool ativo = sensors.ContainsKey(msg.SensorId) && sensors[msg.SensorId].Estado == "ativo";
-                                        csvMutex.ReleaseMutex();
+                                        ["error_code"] = "NOT_REGISTERED",
+                                        ["gateway_id"] = gatewayId
+                                    },
+                                    DateTime.UtcNow.ToString("o")
+                                );
 
-                                        if (ativo)
-                                        {
-                                            var pendingMessage = new PendingDataMessage(msg);
-                                            messageQueue.Add(pendingMessage);
-                                            var tipoDado = msg.Payload?.GetValueOrDefault("tipo_dado")?.ToString() ?? "desconhecido";
-                                            var valor = msg.Payload?.GetValueOrDefault("valor")?.ToString() ?? "N/A";
-                                            Log($"📊 [DADOS] Sensor '{msg.SensorId}' → {tipoDado}: {valor}");
-
-                                            if (pendingMessage.Completion.Task.Wait(TimeSpan.FromSeconds(10)))
-                                            {
-                                                var dataAck = new Mensagem(TiposMensagem.DATA_ACK, msg.SensorId,
-                                                    new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
-                                                writer.WriteLine(MensagemSerializer.Serializar(dataAck));
-                                            }
-                                            else
-                                            {
-                                                var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
-                                                    new Dictionary<string, object> { ["error_code"] = CodigosErro.SERVER_UNAVAILABLE },
-                                                    DateTime.UtcNow.ToString("o"));
-                                                writer.WriteLine(MensagemSerializer.Serializar(error));
-                                                Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': timeout à espera de confirmação do servidor");
-                                            }
-                                        }
-                                        else
-                                        {
-                                            var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
-                                                new Dictionary<string, object> { ["error_code"] = CodigosErro.SENSOR_INACTIVE },
-                                                DateTime.UtcNow.ToString("o"));
-                                            writer.WriteLine(MensagemSerializer.Serializar(error));
-                                            Log($"⚠️  [DADOS] Sensor '{msg.SensorId}': Inativo, mensagem rejeitada");
-                                        }
-                                    }
-                                }
-                                else
-                                {
-                                    var error = new Mensagem(TiposMensagem.ERROR, msg.SensorId,
-                                        new Dictionary<string, object> { ["error_code"] = "NOT_REGISTERED" },
-                                        DateTime.UtcNow.ToString("o"));
-                                    writer.WriteLine(MensagemSerializer.Serializar(error));
-                                    Log($"❌ [DADOS] Sensor '{msg.SensorId}': Não registado");
-                                }
+                                writer.WriteLine(MensagemSerializer.Serializar(error));
                                 break;
                             }
-                            
 
-                        case TiposMensagem.HEARTBEAT:
-                            AtualizarLastSync(msg.SensorId);
-                            var heartbeatAck = new Mensagem(TiposMensagem.HEARTBEAT_ACK, msg.SensorId, new Dictionary<string, object>(), DateTime.UtcNow.ToString("o"));
-                            writer.WriteLine(MensagemSerializer.Serializar(heartbeatAck));
-                            Log($"💓 [HEARTBEAT] Sensor '{msg.SensorId}' está vivo (Zona: {zona})");
+                            msg.Payload["gateway_id"] = gatewayId;
+
+                            var pending = new PendingDataMessage(msg);
+                            messageQueue.Add(pending);
+
+                            if (pending.Completion.Task.Wait(TimeSpan.FromSeconds(10)))
+                            {
+                                var ack = new Mensagem(
+                                    TiposMensagem.DATA_ACK,
+                                    sensorId,
+                                    new Dictionary<string, object>
+                                    {
+                                        ["gateway_id"] = gatewayId
+                                    },
+                                    DateTime.UtcNow.ToString("o")
+                                );
+
+                                writer.WriteLine(MensagemSerializer.Serializar(ack));
+                            }
+                            else
+                            {
+                                var error = new Mensagem(
+                                    TiposMensagem.ERROR,
+                                    sensorId,
+                                    new Dictionary<string, object>
+                                    {
+                                        ["error_code"] = CodigosErro.SERVER_UNAVAILABLE,
+                                        ["gateway_id"] = gatewayId
+                                    },
+                                    DateTime.UtcNow.ToString("o")
+                                );
+
+                                writer.WriteLine(MensagemSerializer.Serializar(error));
+                            }
+
                             break;
 
-                        default:
-                            var err = new Mensagem(TiposMensagem.ERROR, msg.SensorId, new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT }, DateTime.UtcNow.ToString("o"));
-                            writer.WriteLine(MensagemSerializer.Serializar(err));
-                            Log($"❌ [ERRO] Sensor '{msg.SensorId}': Tipo de mensagem inválido");
+                        case TiposMensagem.HEARTBEAT:
+
+                            AtualizarLastSync(sensorId);
+
+                            var hbAck = new Mensagem(
+                                TiposMensagem.HEARTBEAT_ACK,
+                                sensorId,
+                                new Dictionary<string, object>
+                                {
+                                    ["gateway_id"] = gatewayId
+                                },
+                                DateTime.UtcNow.ToString("o")
+                            );
+
+                            writer.WriteLine(MensagemSerializer.Serializar(hbAck));
                             break;
                     }
                 }
             }
-            catch (Exception ex)
-            {
-                Log($"⚠️  Erro na ligação com sensor {sensorId}: {ex.Message}");
-            }
             finally
             {
-                Log($"🔌 Desconexão do sensor '{sensorId}'");
-                try { client.Close(); } catch { }
+                client.Close();
             }
         }
+
 
         private static void Log(string message)
         {
