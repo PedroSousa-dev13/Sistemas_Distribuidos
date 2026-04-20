@@ -12,12 +12,15 @@ namespace Servidor
 {
     class Program
     {
+        private static Dictionary<string, int> gatewayMap = new Dictionary<string, int>();
+        private static Dictionary<int, List<string>> gatewayMessages = new Dictionary<int, List<string>>();
         private static Dictionary<string, Mutex> fileMutexes = new Dictionary<string, Mutex>();
         private static Mutex fileMutexesLock = new Mutex();
         private static string dataDirectory = "dados";
         private static readonly object logLock = new object();
         private static int gatewayCount = 0;
         private static Mutex gatewayCountMutex = new Mutex();
+        private static int portaOriginal;
 
         static void Main(string[] args)
         {
@@ -28,10 +31,10 @@ namespace Servidor
             }
 
             int listenPort = int.Parse(args[0]);
+            portaOriginal = listenPort;
 
             ExibirBannerInicial(listenPort);
 
-            // Criar diretório de dados se não existir
             if (!Directory.Exists(dataDirectory))
             {
                 Directory.CreateDirectory(dataDirectory);
@@ -43,13 +46,12 @@ namespace Servidor
                 Console.WriteLine($"Diretorio de dados encontrado: {dataDirectory}\n");
             }
 
-            // Inicializar mutexes para ficheiros
             InitializeFileMutexes();
             Console.WriteLine("Mutexes para ficheiros inicializados\n");
 
-            // Iniciar listener TCP
             TcpListener listener = new TcpListener(IPAddress.Any, listenPort);
             listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
             try
             {
                 listener.Start();
@@ -59,7 +61,6 @@ namespace Servidor
             catch (SocketException ex)
             {
                 Console.WriteLine($"Erro ao iniciar servidor na porta {listenPort}: {ex.Message}");
-                Console.WriteLine($"Tenta uma porta diferente ou aguarda alguns minutos antes de reiniciar.");
                 return;
             }
 
@@ -68,19 +69,15 @@ namespace Servidor
                 while (true)
                 {
                     TcpClient client = listener.AcceptTcpClient();
-                    gatewayCountMutex.WaitOne();
-                    try
-                    {
-                        gatewayCount++;
-                        Log($"Nova gateway conectada. Total: {gatewayCount}");
-                        Console.WriteLine($"\nGateway #{gatewayCount} conectada! (Total: {gatewayCount})");
-                    }
-                    finally
-                    {
-                        gatewayCountMutex.ReleaseMutex();
-                    }
 
-                    Thread gatewayThread = new Thread(() => HandleGateway(client))
+                    gatewayCountMutex.WaitOne();
+                    gatewayCount++;
+                    int gatewayNumber = gatewayCount;
+                    gatewayMessages[gatewayNumber] = new List<string>();
+                    Console.WriteLine($"\nGateway #{gatewayNumber} conectada! (Total: {gatewayCount})");
+                    gatewayCountMutex.ReleaseMutex();
+
+                    Thread gatewayThread = new Thread(() => HandleGateway(client, gatewayNumber))
                     {
                         IsBackground = true
                     };
@@ -102,7 +99,7 @@ namespace Servidor
             Console.WriteLine("\n+---------------------------------------------------------------+");
             Console.WriteLine("|        SERVIDOR - Sistema IoT Distribuido - FASE 3          |");
             Console.WriteLine("+---------------------------------------------------------------+\n");
-            
+
             Console.WriteLine("Configuracao do Servidor:");
             Console.WriteLine($"  Porto de escuta: {porta}");
             Console.WriteLine($"  Protocolo: TCP/IPv4");
@@ -119,7 +116,7 @@ namespace Servidor
             Console.WriteLine($"Thread-safety: ATIVA (Mutexes por tipo de dado)");
             Console.WriteLine($"Tipos de dados suportados: 8 (temperatura, humidade, etc.)");
             Console.WriteLine("===============================================================\n");
-            
+
             Console.WriteLine("Monitor de Gateways:");
             Console.WriteLine("----------------------------------------------------------------\n");
         }
@@ -129,24 +126,17 @@ namespace Servidor
             string[] tiposDados = { "temperatura", "humidade", "qualidade_ar", "ruido", "pm25", "pm10", "luminosidade", "imagem" };
 
             fileMutexesLock.WaitOne();
-            try
-            {
-                foreach (var tipo in tiposDados)
-                {
-                    fileMutexes[tipo] = new Mutex();
-                }
-            }
-            finally
-            {
-                fileMutexesLock.ReleaseMutex();
-            }
+            foreach (var tipo in tiposDados)
+                fileMutexes[tipo] = new Mutex();
+            fileMutexesLock.ReleaseMutex();
         }
 
-        private static void HandleGateway(TcpClient client)
+        private static void HandleGateway(TcpClient client, int gatewayNumber)
         {
             NetworkStream stream = client.GetStream();
             var reader = new StreamReader(stream, new UTF8Encoding(false));
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+
             string? gatewayId = null;
             int mensagensRecebidas = 0;
 
@@ -157,60 +147,44 @@ namespace Servidor
                     string? line = reader.ReadLine();
                     if (line == null) break;
 
-                    try
-                    {
-                        var msg = MensagemSerializer.Deserializar(line);
-                        gatewayId = gatewayId ?? $"GATEWAY_{DateTime.Now.Ticks}";
-                        mensagensRecebidas++;
+                    var msg = MensagemSerializer.Deserializar(line);
 
-                        switch (msg.Tipo)
-                        {
-                            case TiposMensagem.DATA:
-                                ProcessarDATA(msg, writer);
-                                break;
+                    if (msg.Payload != null && msg.Payload.TryGetValue("gateway_id", out var gwObj))
+                        gatewayId = gwObj?.ToString() ?? gatewayId;
+                    else
+                        gatewayId ??= $"GATEWAY_{DateTime.Now.Ticks}";
 
-                            default:
-                                Log($"⚠️  Tipo de mensagem desconhecido: {msg.Tipo}");
-                                var error = new Mensagem(
-                                    TiposMensagem.ERROR,
-                                    msg.SensorId,
-                                    new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-                                writer.WriteLine(MensagemSerializer.Serializar(error));
-                                break;
-                        }
-                    }
-                    catch (JsonException ex)
+                    gatewayCountMutex.WaitOne();
+                    if (!gatewayMap.ContainsKey(gatewayId))
+                        gatewayMap[gatewayId] = gatewayNumber;
+                    gatewayCountMutex.ReleaseMutex();
+
+                    mensagensRecebidas++;
+
+                    if (msg.Tipo == TiposMensagem.DATA)
+                        ProcessarDATA(msg, writer);
+                    else
                     {
-                        Log($"Erro ao deserializar mensagem: {ex.Message}");
-                        continue;
+                        var error = new Mensagem(
+                            TiposMensagem.ERROR,
+                            msg.SensorId,
+                            new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
+                            DateTime.UtcNow.ToString("o")
+                        );
+                        writer.WriteLine(MensagemSerializer.Serializar(error));
                     }
                 }
             }
             catch (Exception ex)
             {
-                    Log($"Erro na ligacao com gateway {gatewayId}: {ex.Message}");
+                Log($"Erro na ligacao com gateway {gatewayId}: {ex.Message}");
             }
             finally
             {
                 gatewayCountMutex.WaitOne();
-                try
-                {
-                    if (gatewayCount > 0)
-                    {
-                        gatewayCount--;
-                    }
-                    Log($"🔌 Gateway desconectada ({gatewayId}) | Mensagens processadas: {mensagensRecebidas} | Total de gateways: {gatewayCount}");
-                    if (gatewayCount > 0)
-                    {
-                        Console.WriteLine($"Gateway desconectada. Ainda ha {gatewayCount} gateway(s) conectada(s)\n");
-                    }
-                }
-                finally
-                {
-                    gatewayCountMutex.ReleaseMutex();
-                }
+                gatewayCount--;
+                gatewayCountMutex.ReleaseMutex();
+
                 stream?.Dispose();
                 client?.Close();
             }
@@ -218,131 +192,45 @@ namespace Servidor
 
         private static void ProcessarDATA(Mensagem msg, StreamWriter writer)
         {
-            try
+            if (msg.Payload == null)
+                return;
+
+            if (!msg.Payload.TryGetValue("tipo_dado", out var tipoDadoObj) ||
+                !msg.Payload.TryGetValue("valor", out var valorObj))
+                return;
+
+            string tipoDado = tipoDadoObj.ToString();
+            string valor = valorObj.ToString();
+            string timestamp = msg.Timestamp;
+            string sensorId = msg.SensorId;
+
+            string gatewayId = msg.Payload.TryGetValue("gateway_id", out var gwObj)
+                ? gwObj?.ToString() ?? "desconhecido"
+                : "desconhecido";
+
+            int num = gatewayMap.ContainsKey(gatewayId) ? gatewayMap[gatewayId] : -1;
+
+            string linha = $"   [Gateway #{num}] Sensor: {sensorId} | Tipo: {tipoDado} | Valor: {valor} | Hora: {timestamp}";
+            gatewayMessages[num].Add(linha);
+
+            Console.Clear();
+            ExibirServidorPronto(portaOriginal);
+
+            foreach (var kv in gatewayMessages)
             {
-                // Extrair dados do payload
-                if (msg.Payload == null)
-                {
-                    Log($"Payload nulo na mensagem DATA de {msg.SensorId}");
-                    var error = new Mensagem(
-                        TiposMensagem.ERROR,
-                        msg.SensorId,
-                        new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                        DateTime.UtcNow.ToString("o")
-                    );
-                    writer.WriteLine(MensagemSerializer.Serializar(error));
-                    return;
-                }
-
-                // Extrair tipo_dado e valor do payload
-                if (!msg.Payload.TryGetValue("tipo_dado", out var tipoDadoObj) ||
-                    !msg.Payload.TryGetValue("valor", out var valorObj))
-                {
-                    Log($"Campos obrigatórios em falta na mensagem DATA de {msg.SensorId}");
-                    var error = new Mensagem(
-                        TiposMensagem.ERROR,
-                        msg.SensorId,
-                        new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                        DateTime.UtcNow.ToString("o")
-                    );
-                    writer.WriteLine(MensagemSerializer.Serializar(error));
-                    return;
-                }
-
-                string? tipoDado = tipoDadoObj?.ToString();
-                string? valor = valorObj?.ToString();
-                string timestamp = msg.Timestamp;
-                string sensorId = msg.SensorId;
-
-                if (string.IsNullOrWhiteSpace(tipoDado) || string.IsNullOrWhiteSpace(valor))
-                {
-                    Log($"Campos tipo_dado/valor inválidos na mensagem DATA de {msg.SensorId}");
-                    var error = new Mensagem(
-                        TiposMensagem.ERROR,
-                        msg.SensorId,
-                        new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
-                        DateTime.UtcNow.ToString("o")
-                    );
-                    writer.WriteLine(MensagemSerializer.Serializar(error));
-                    return;
-                }
-
-                // Persistir medição
-                if (PersistirMedicao(tipoDado, timestamp, sensorId, valor))
-                {
-                    Console.WriteLine($"[DADOS] Sensor: {sensorId} | Tipo: {tipoDado} | Valor: {valor} | Hora: {timestamp}");
-                    Log($"[DADOS] Sensor: {sensorId} | Tipo: {tipoDado} | Valor: {valor} | Hora: {timestamp}");
-
-                    // Enviar ACK
-                    var ack = new Mensagem(
-                        TiposMensagem.DATA_ACK,
-                        sensorId,
-                        new Dictionary<string, object>(),
-                        DateTime.UtcNow.ToString("o")
-                    );
-                    writer.WriteLine(MensagemSerializer.Serializar(ack));
-                }
-                else
-                {
-                    throw new Exception("Falha ao persistir medição");
-                }
+                Console.WriteLine($"Gateway #{kv.Key} conectada!");
+                foreach (var msgLinha in kv.Value)
+                    Console.WriteLine(msgLinha);
+                Console.WriteLine();
             }
-            catch (Exception ex)
-            {
-                Log($"❌ Erro ao processar DATA: {ex.Message}");
-                var error = new Mensagem(
-                    TiposMensagem.ERROR,
-                    msg.SensorId,
-                    new Dictionary<string, object> { ["error_code"] = "PERSISTENCE_ERROR" },
-                    DateTime.UtcNow.ToString("o")
-                );
-                writer.WriteLine(MensagemSerializer.Serializar(error));
-            }
-        }
 
-        private static bool PersistirMedicao(string tipoDado, string timestamp, string sensorId, string valor)
-        {
-            try
-            {
-                // Validar tipo de dado
-                if (!fileMutexes.ContainsKey(tipoDado))
-                {
-                    Log($"Tipo de dado não suportado: {tipoDado}");
-                    return false;
-                }
-
-                // Obter mutex para este tipo de dado
-                fileMutexesLock.WaitOne();
-                Mutex mutex;
-                try
-                {
-                    mutex = fileMutexes[tipoDado];
-                }
-                finally
-                {
-                    fileMutexesLock.ReleaseMutex();
-                }
-
-                // Lock do mutex específico do tipo
-                mutex.WaitOne();
-                try
-                {
-                    string filePath = Path.Combine(dataDirectory, $"{tipoDado}.txt");
-                    string linha = $"{timestamp}|{sensorId}|{valor}";
-
-                    File.AppendAllText(filePath, linha + "\n");
-                    return true;
-                }
-                finally
-                {
-                    mutex.ReleaseMutex();
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"Erro ao persistir medição: {ex.Message}");
-                return false;
-            }
+            var ack = new Mensagem(
+                TiposMensagem.DATA_ACK,
+                sensorId,
+                new Dictionary<string, object>(),
+                DateTime.UtcNow.ToString("o")
+            );
+            writer.WriteLine(MensagemSerializer.Serializar(ack));
         }
 
         private static void Log(string message)
