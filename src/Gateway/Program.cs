@@ -387,14 +387,16 @@ namespace Gateway
             string sensorId = null;
             string zona = "Desconhecida";
 
-            // ID único do gateway baseado na porta local
-
             try
             {
                 while (true)
                 {
                     string line = reader.ReadLine();
-                    if (line == null) break;
+                    if (line == null)
+                    {
+                        Console.WriteLine($"[Gateway] Sensor {sensorId} desconectado (stream fechado).");
+                        break;
+                    }
 
                     Mensagem msg;
                     try
@@ -411,16 +413,12 @@ namespace Gateway
                     switch (msg.Tipo)
                     {
                         case TiposMensagem.REGISTER:
-
                             csvMutex.WaitOne();
                             bool exists = sensors.ContainsKey(sensorId);
-                            bool wasActive = false;
 
                             if (exists)
                             {
                                 zona = sensors[sensorId].Zona;
-                                wasActive = sensors[sensorId].Estado == "ativo";
-
                                 sensors[sensorId].Estado = "ativo";
                                 sensors[sensorId].LastSync = DateTime.UtcNow;
                                 EscreverCSV();
@@ -537,11 +535,18 @@ namespace Gateway
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Gateway] Sensor {sensorId} desconectado (erro: {ex.Message}).");
+            }
             finally
             {
-                client.Close();
+                // IMPORTANTE: só fecha a ligação com o SENSOR
+                stream?.Close();
+                client?.Close();
             }
         }
+
 
 
         private static void Log(string message)

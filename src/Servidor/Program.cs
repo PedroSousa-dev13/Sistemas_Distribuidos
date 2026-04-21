@@ -145,7 +145,11 @@ namespace Servidor
                 while (true)
                 {
                     string? line = reader.ReadLine();
-                    if (line == null) break;
+                    if (line == null)
+                    {
+                        Console.WriteLine($"[Servidor] Gateway #{gatewayNumber} desconectada (stream fechado).");
+                        break;
+                    }
 
                     var msg = MensagemSerializer.Deserializar(line);
 
@@ -177,6 +181,7 @@ namespace Servidor
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[Servidor] Gateway #{gatewayNumber} desconectada (erro de ligação).");
                 Log($"Erro na ligacao com gateway {gatewayId}: {ex.Message}");
             }
             finally
@@ -185,10 +190,12 @@ namespace Servidor
                 gatewayCount--;
                 gatewayCountMutex.ReleaseMutex();
 
+                Console.WriteLine($"[Servidor] Ligação com a Gateway #{gatewayNumber} terminada.");
                 stream?.Dispose();
                 client?.Close();
             }
         }
+
 
         private static void ProcessarDATA(Mensagem msg, StreamWriter writer)
         {
