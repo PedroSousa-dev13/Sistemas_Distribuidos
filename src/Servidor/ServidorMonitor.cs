@@ -124,6 +124,32 @@ namespace Servidor
             }
         }
 
+        public List<(string timestamp, string sensorId, string valor)> LerMedicoes(string tipoDado, int limite = 1000)
+        {
+            var resultados = new List<(string, string, string)>();
+            string filePath = Path.Combine(_dataDirectory, $"{tipoDado}.txt");
+
+            if (!File.Exists(filePath))
+                return resultados;
+
+            var linhas = File.ReadAllLines(filePath);
+            int start = Math.Max(0, linhas.Length - limite);
+
+            for (int i = start; i < linhas.Length; i++)
+            {
+                var partes = linhas[i].Split('|');
+                if (partes.Length >= 3)
+                    resultados.Add((partes[0], partes[1], partes[2]));
+            }
+
+            return resultados;
+        }
+
+        public List<string> ObterTiposDados()
+        {
+            return _fileMutexes.Keys.ToList();
+        }
+
         /// <summary>
         /// Retorna o caminho do diretório de dados.
         /// </summary>

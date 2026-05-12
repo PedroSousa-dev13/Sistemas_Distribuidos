@@ -36,6 +36,7 @@ namespace Gateway
         private static string serverEndpoint;
         private static string csvPath;
         private static string gatewayId;
+        private static PreProcessamentoClient preProcessamentoClient = new PreProcessamentoClient();
 
         private static readonly object logLock = new object();
         private static readonly object serverLock = new object();
@@ -94,13 +95,15 @@ namespace Gateway
         private static void ExibirBannerInicial(int porta, string servidor, string csv)
         {
             Console.WriteLine("\n+---------------------------------------------------------------+");
-            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido - FASE 3            |");
+            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido - TP2               |");
+            Console.WriteLine("|       RPC de Pre-Processamento (FASE 1)                     |");
             Console.WriteLine("+---------------------------------------------------------------+\n");
             
             Console.WriteLine("Configuracao Inicial:");
             Console.WriteLine($"  Porto de escuta para Sensores: {porta}");
             Console.WriteLine($"  Servidor remoto: {servidor}");
             Console.WriteLine($"  Ficheiro CSV de sensores: {csv}");
+            Console.WriteLine($"  RPC Pre-Processamento: http://127.0.0.1:5001");
             Console.WriteLine();
         }
 
@@ -477,6 +480,58 @@ namespace Gateway
 
                                 writer.WriteLine(MensagemSerializer.Serializar(error));
                                 break;
+                            }
+
+                            // --- RPC: Pre-Processamento (Uniformizar + Validar) ---
+                            if (msg.Payload.TryGetValue("tipo_dado", out var tipoDadoObj) &&
+                                msg.Payload.TryGetValue("valor", out var valorObj))
+                            {
+                                string tipoDado = tipoDadoObj?.ToString() ?? "";
+                                double valorOriginal = 0;
+                                try { valorOriginal = Convert.ToDouble(valorObj); }
+                                catch { valorOriginal = 0; }
+
+                                var rpcResult = preProcessamentoClient
+                                    .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
+                                    .GetAwaiter().GetResult();
+
+                                if (rpcResult?.Sucesso == true)
+                                {
+                                    msg.Payload["valor"] = rpcResult.ValorUniformizado;
+                                    msg.Payload["unidade"] = rpcResult.Unidade;
+                                    Log($"RPC Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
+
+                                    var validacao = preProcessamentoClient
+                                        .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
+                                        .GetAwaiter().GetResult();
+
+                                    if (validacao?.Valido == false)
+                                    {
+                                        string erros = string.Join("; ", validacao.Erros);
+                                        Log($"RPC Validar: {sensorId}/{tipoDado} - REJEITADO: {erros}");
+
+                                        var error = new Mensagem(
+                                            TiposMensagem.ERROR,
+                                            sensorId,
+                                            new Dictionary<string, object>
+                                            {
+                                                ["error_code"] = "INVALID_DATA",
+                                                ["description"] = erros,
+                                                ["gateway_id"] = gatewayId
+                                            },
+                                            DateTime.UtcNow.ToString("o")
+                                        );
+
+                                        writer.WriteLine(MensagemSerializer.Serializar(error));
+                                        break;
+                                    }
+
+                                    Log($"RPC Validar: {sensorId}/{tipoDado} - VALIDO");
+                                }
+                                else
+                                {
+                                    Log($"RPC Uniformizar falhou: {rpcResult?.Erro ?? "servico indisponivel"} - a usar valor original");
+                                }
                             }
 
                             msg.Payload["gateway_id"] = gatewayId;

@@ -1,0 +1,2 @@
+# Sem dependencias externas - usa apenas biblioteca padrao Python
+# http.server, json, math

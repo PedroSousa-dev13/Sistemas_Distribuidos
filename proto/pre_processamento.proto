@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package preprocessamento;
+
+service PreProcessamento {
+  rpc UniformizarDados (UniformizarRequest) returns (UniformizarResponse);
+  rpc ValidarDados (ValidarRequest) returns (ValidarResponse);
+}
+
+message UniformizarRequest {
+  string sensor_id = 1;
+  string tipo_dado = 2;
+  double valor = 3;
+  string timestamp = 4;
+  string formato_original = 5;
+}
+
+message UniformizarResponse {
+  string sensor_id = 1;
+  string tipo_dado = 2;
+  double valor_uniformizado = 3;
+  string timestamp = 4;
+  string unidade = 5;
+  bool sucesso = 6;
+  string erro = 7;
+}
+
+message ValidarRequest {
+  string sensor_id = 1;
+  string tipo_dado = 2;
+  double valor = 3;
+}
+
+message ValidarResponse {
+  bool valido = 1;
+  repeated string erros = 2;
+  string sensor_id = 3;
+  string tipo_dado = 4;
+}
