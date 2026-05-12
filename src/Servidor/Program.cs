@@ -4,7 +4,6 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using SharedProtocol;
 
@@ -14,13 +13,13 @@ namespace Servidor
     {
         private static Dictionary<string, int> gatewayMap = new Dictionary<string, int>();
         private static Dictionary<int, List<string>> gatewayMessages = new Dictionary<int, List<string>>();
-        private static Dictionary<string, Mutex> fileMutexes = new Dictionary<string, Mutex>();
-        private static Mutex fileMutexesLock = new Mutex();
         private static string dataDirectory = "dados";
         private static readonly object logLock = new object();
         private static int gatewayCount = 0;
         private static Mutex gatewayCountMutex = new Mutex();
         private static int portaOriginal;
+        private static ServidorMonitor monitor;
+        private static readonly object gatewayMessagesLock = new object();
 
         static void Main(string[] args)
         {
@@ -46,8 +45,7 @@ namespace Servidor
                 Console.WriteLine($"Diretorio de dados encontrado: {dataDirectory}\n");
             }
 
-            InitializeFileMutexes();
-            Console.WriteLine("Mutexes para ficheiros inicializados\n");
+            monitor = new ServidorMonitor(dataDirectory);
 
             TcpListener listener = new TcpListener(IPAddress.Any, listenPort);
             listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
@@ -121,16 +119,6 @@ namespace Servidor
             Console.WriteLine("----------------------------------------------------------------\n");
         }
 
-        private static void InitializeFileMutexes()
-        {
-            string[] tiposDados = { "temperatura", "humidade", "qualidade_ar", "ruido", "pm25", "pm10", "luminosidade", "imagem" };
-
-            fileMutexesLock.WaitOne();
-            foreach (var tipo in tiposDados)
-                fileMutexes[tipo] = new Mutex();
-            fileMutexesLock.ReleaseMutex();
-        }
-
         private static void HandleGateway(TcpClient client, int gatewayNumber)
         {
             NetworkStream stream = client.GetStream();
@@ -138,7 +126,6 @@ namespace Servidor
             var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
 
             string? gatewayId = null;
-            int mensagensRecebidas = 0;
 
             try
             {
@@ -159,15 +146,13 @@ namespace Servidor
                         gatewayMap[gatewayId] = gatewayNumber;
                     gatewayCountMutex.ReleaseMutex();
 
-                    mensagensRecebidas++;
-
                     if (msg.Tipo == TiposMensagem.DATA)
                         ProcessarDATA(msg, writer);
                     else
                     {
                         var error = new Mensagem(
                             TiposMensagem.ERROR,
-                            msg.SensorId,
+                            msg.SensorId ?? "unknown",
                             new Dictionary<string, object> { ["error_code"] = CodigosErro.INVALID_FORMAT },
                             DateTime.UtcNow.ToString("o")
                         );
@@ -204,6 +189,9 @@ namespace Servidor
             string timestamp = msg.Timestamp;
             string sensorId = msg.SensorId;
 
+            // Persistir dados no ficheiro
+            monitor.PersistirMedicao(tipoDado, timestamp, sensorId, valor);
+
             string gatewayId = msg.Payload.TryGetValue("gateway_id", out var gwObj)
                 ? gwObj?.ToString() ?? "desconhecido"
                 : "desconhecido";
@@ -211,17 +199,24 @@ namespace Servidor
             int num = gatewayMap.ContainsKey(gatewayId) ? gatewayMap[gatewayId] : -1;
 
             string linha = $"   [Gateway #{num}] Sensor: {sensorId} | Tipo: {tipoDado} | Valor: {valor} | Hora: {timestamp}";
-            gatewayMessages[num].Add(linha);
+
+            lock (gatewayMessagesLock)
+            {
+                gatewayMessages[num].Add(linha);
+            }
 
             Console.Clear();
             ExibirServidorPronto(portaOriginal);
 
-            foreach (var kv in gatewayMessages)
+            lock (gatewayMessagesLock)
             {
-                Console.WriteLine($"Gateway #{kv.Key} conectada!");
-                foreach (var msgLinha in kv.Value)
-                    Console.WriteLine(msgLinha);
-                Console.WriteLine();
+                foreach (var kv in gatewayMessages)
+                {
+                    Console.WriteLine($"Gateway #{kv.Key} conectada!");
+                    foreach (var msgLinha in kv.Value)
+                        Console.WriteLine(msgLinha);
+                    Console.WriteLine();
+                }
             }
 
             var ack = new Mensagem(

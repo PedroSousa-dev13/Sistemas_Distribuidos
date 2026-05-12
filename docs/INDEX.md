@@ -3,31 +3,28 @@
 
 Este indice foi escrito para estudo e navegacao rapida antes da defesa.
 
-1) DOCUMENTOS PRINCIPAIS
-------------------------
-- README.md
+1) DOCUMENTOS PRINCIPAIS (./docs/)
+-----------------------------------
+- README.md (raiz)
   Guia geral do projeto e comandos de execucao.
 
-- PROTOCOLO.md
+- docs/PROTOCOLO.md
   Especificacao formal do protocolo de comunicacao.
 
-- APRESENTACAO.txt
+- docs/APRESENTACAO.txt
   Guiao completo de defesa oral (versao extensa).
 
-- melhorias.txt
+- docs/melhorias.txt
   Resumo tecnico das melhorias e limpeza final.
 
-- comparacao.txt
+- docs/comparacao.txt
   Analise comparativa entre a solucao entregue e alternativas.
 
-- aa.txt
+- docs/aa.txt
   Argumentario de apoio para perguntas de alternativas.
 
-- REDE_DISTRIBUIDA.txt
+- docs/REDE_DISTRIBUIDA.txt
   Notas para execucao em varios computadores.
-
-- bugs.txt
-  Registo de problemas e respetivas correcoes.
 
 
 2) CODIGO FONTE POR MODULO

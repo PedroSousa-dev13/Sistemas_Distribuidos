@@ -1,0 +1,374 @@
+ORGANIZACAO TP2 - Servicos de Analise e Monitorizacao Urbana para One Health
+============================================================================
+Unidade Curricular: Sistemas Distribuidos 2025/2026
+Docentes: Hugo Paredes | Tiago Pinto | Cristiano Pendo
+Data: 2026-05-12
+
+================================================================================
+1. ARQUITETURA GERAL DO SISTEMA (TP2)
+================================================================================
+
+  [Sensores] --- RabbitMQ Pub/Sub ---> [Gateways] --- TCP/JSON ---> [Servidor]
+                    (topicos)              |            |              |
+                                           | RPC        | RPC          |
+                                           v            v              v
+                                    [Pre-Processamento]         [Analise]
+                                      (Python/C#/Go)           (Python)
+
+Topicos RabbitMQ:
+  Por tipo de dado:     temperatura, humidade, pm25, etc.
+  Por zona:             Sala_A, Sala_B, Corredor, etc.
+
+================================================================================
+2. COMPONENTES E RESPONSABILIDADES
+================================================================================
+
+2.1 Sensores
+------------
+- Publicam dados recolhidos (temperatura, humidade, PM2.5, etc.)
+  em topicos RabbitMQ organizados por tipo de dado ou zona
+- Comunicacao desacoplada dos Gateways via Pub/Sub
+
+2.2 Gateways
+------------
+- Subscrevem topicos de interesse (por zona e/ou tipo de dado)
+- Invocam servico RPC de Pre-Processamento para uniformizacao:
+    - Conversao de escalas (ex: Fahrenheit -> Celsius)
+    - Tratamento de formatos (JSON/XML/CSV)
+- Encaminham dados processados para o Servidor via TCP/JSON
+
+2.3 Servico de Pre-Processamento (RPC)
+---------------------------------------
+- Servico externo chamado pelo Gateway via RPC
+- Uniformizacao e validacao de dados antes da agregacao
+- Pode ser implementado em linguagem diferente (ex: Python)
+
+2.4 Servidor
+------------
+- Recebe dados dos Gateways via TCP/JSON
+- Armazena dados e resultados de analises em Base de Dados
+- Invoca servico RPC de Analise e Previsao para:
+    - Analises estatisticas (media, mediana, desvio padrao)
+    - Detecao de padroes de poluicao
+    - Previsao de riscos para saude publica
+- Disponibiliza interface (CLI ou Web) para:
+    - Visualizar resultados das analises
+    - Solicitar novas analises com parametros:
+        * Intervalo temporal
+        * Tipo de sensor
+        * Identificacao do sensor
+
+2.5 Servico de Analise e Previsao (RPC)
+----------------------------------------
+- Servico especializado chamado pelo Servidor via RPC
+- Analise estatistica e previsao de series temporais
+- Pode ser implementado em Python (Pandas, NumPy, Scipy)
+
+================================================================================
+3. TECNOLOGIAS E LINGUAGENS
+================================================================================
+
+3.1 RabbitMQ (Pub/Sub Obrigatorio)
+-----------------------------------
+Tipo:    Message Broker (AMQP 0-9-1)
+Porta:   5672 (AMQP), 15672 (Management UI)
+Topicos: organizados por tipo_dado ou zona (ex: temperatura, Sala_A)
+
+Cliente C#:   RabbitMQ.Client (NuGet)
+Cliente Python: pika
+
+Topicos recomendados:
+  Por tipo:     dados.temperatura, dados.humidade, dados.pm25
+  Por zona:     zona.Sala_A, zona.Sala_B, zona.Corredor
+  Routing key:  dados.<tipo_dado> ou zona.<zona>
+
+Vantagens para o TP2:
+  - Exigido pelo enunciado
+  - Roteamento flexivel (topic exchanges)
+  - Confirmacoes de entrega (publisher confirms)
+  - Filas com persistencia
+  - Dead Letter Queues para mensagens com falha
+  - Management UI para debug
+
+3.2 RPC (Gateway <-> Pre-Processamento)
+-----------------------------------------
+Opcoes:
+  a) gRPC (Recomendado)
+     - Protocolo: HTTP/2 + Protocol Buffers
+     - Contrato .proto, geracao de codigo automatica
+     - Streaming bidirecional
+     - Suporta C#, Python, Go, Java
+     - Alto desempenho (binario)
+
+  b) JSON-RPC
+     - Mais simples, sem IDL
+     - Debug facil (JSON legivel)
+     - Suportado por qualquer linguagem
+
+  c) Apache Thrift
+     - Alternativa madura ao gRPC
+     - Contrato .thrift, multiplos transportes
+
+3.3 RPC (Servidor <-> Analise)
+--------------------------------
+Mesmas opcoes do ponto 3.2.
+Recomendado: gRPC para consistencia com o resto do sistema.
+
+3.4 Base de Dados
+------------------
+Opcoes:
+  a) PostgreSQL (Recomendado)
+     - Relacional, maturo, robusto
+     - JSONB para payloads semi-estruturados
+     - TimescaleDB extension para series temporais
+     - Cliente C#: Npgsql
+     - Cliente Python: psycopg2
+
+  b) SQLite
+     - Zero configuracao, ficheiro unico
+     - Adequado para prototipagem
+     - Sem concorrencia de escrita
+
+  c) MongoDB
+     - NoSQL documental
+     - Schema flexivel para dados heterogeneos
+     - Drivers para C# e Python
+
+  d) InfluxDB
+     - Time-series database
+     - Otimizado para dados temporais
+     - Downsampling e retention policies nativas
+
+3.5 Interface de Visualizacao
+------------------------------
+Opcoes:
+  a) Dash (Plotly) - Python (Recomendado)
+     - Web app interativo com graficos
+     - Filtros: intervalo temporal, tipo sensor, id sensor
+     - Despoletar novas analises com parametrizacao
+     - Integra Pandas, NumPy nativamente
+
+  b) Streamlit - Python
+     - Prototipagem mais rapida
+     - Menos flexivel que Dash
+
+  c) CLI (.NET Console)
+     - Interface por linha de comandos
+     - Mais simples de implementar
+     - Comandos: list, analyze, filter
+
+  d) React + Chart.js
+     - Controlo total sobre UI
+     - Mais complexo (TypeScript + Python backend)
+
+================================================================================
+4. ESCOLHA TECNOLOGICA RECOMENDADA
+================================================================================
+
+Componente          | Linguagem | Tecnologia               | Porto
+--------------------|-----------|--------------------------|------
+Sensor (pub)        | C#        | RabbitMQ.Client          | 5672 (broker)
+Gateway (sub)       | C#        | RabbitMQ.Client + gRPC   | 5001 (RPC)
+Pre-Processamento   | Python    | grpcio + Pandas          | 5001
+Servidor            | C#        | Npgsql + Grpc.Net        | 6000 (TCP)
+Base de Dados       | -         | PostgreSQL               | 5432
+Analise             | Python    | grpcio + Pandas + Scipy  | 6001
+Visualizacao        | Python    | Dash (Plotly)            | 8050
+
+Justificacao:
+- C# mantido para componentes existentes (Sensor, Gateway, Servidor)
+- Python para RPCs (Pre-Processamento, Analise) e GUI (Dash)
+  -> valorizacao: multiplas linguagens no mesmo sistema
+- RabbitMQ obrigatorio pelo enunciado
+- gRPC pelo desempenho e suporte multi-linguagem nativo
+- PostgreSQL pela robustez, JSONB e extensao TimescaleDB
+
+================================================================================
+5. PROTOCOLO DE COMUNICACAO (TP2)
+================================================================================
+
+5.1 Formato das Mensagens (Mantido do TP1)
+-------------------------------------------
+{
+  "tipo": "DATA",
+  "sensor_id": "sensor-01",
+  "payload": { "tipo_dado": "temperatura", "valor": 23.5 },
+  "timestamp": "2026-05-12T10:00:00.000Z"
+}
+
+5.2 Topicos RabbitMQ
+--------------------
+Exchange:   amq.topic (topic exchange)
+
+Topicos de publicacao (Sensor):
+  sensores.<sensor_id>.dados.<tipo_dado>   - medicoes
+  sensores.<sensor_id>.registado           - confirmacao de registo
+  sensores.<sensor_id>.heartbeat           - sinal de vida
+
+Topicos de consumo (Gateway):
+  sensores.<sensor_id>.dados.*             - todos os dados de um sensor
+  sensores.*.dados.temperatura             - temperatura de todos os sensores
+
+Topicos de comando (Gateway -> Sensor):
+  comandos.<sensor_id>.config              - reconfigurar sensor
+  comandos.<sensor_id>.desligar            - desligar sensor
+
+5.3 Chamadas RPC (gRPC)
+-----------------------
+Servico: PreProcessamento
+  rpc UniformizarDados (DadosRequest) returns (DadosResponse)
+  rpc ValidarDados (DadosRequest) returns (ValidacaoResponse)
+
+Servico: Analise
+  rpc CalcularEstatisticas (AnaliseRequest) returns (AnaliseResponse)
+  rpc DetetarPadroes (AnaliseRequest) returns (PadroesResponse)
+  rpc PreverRiscos (AnaliseRequest) returns (PrevisaoResponse)
+
+Estruturas:
+  message DadosRequest {
+    string sensor_id = 1;
+    string tipo_dado = 2;
+    double valor = 3;
+    string timestamp = 4;
+    string formato_original = 5;  // JSON, XML, CSV
+  }
+
+  message AnaliseRequest {
+    string sensor_id = 1;
+    string tipo_dado = 2;
+    string inicio = 3;            // ISO 8601
+    string fim = 4;               // ISO 8601
+    string tipo_analise = 5;      // estatisticas, padroes, previsao
+  }
+
+5.4 Fluxo Completo
+-------------------
+Sensor                    RabbitMQ              Gateway          Pre-Proc          Servidor         Analise
+  |                         |                     |                |                 |                |
+  |-- PUBLISH ------------>|                     |                |                 |                |
+  |   dados/temperatura    |                     |                |                 |                |
+  |                         |-- DELIVER -------->|                |                 |                |
+  |                         |                     |-- RPC ------->|                 |                |
+  |                         |                     |   Uniformizar |                 |                |
+  |                         |                     |<-- Response ---|                 |                |
+  |                         |                     |                |                 |                |
+  |                         |                     |------------------------- TCP DATA -------------->|
+  |                         |                     |                |                 |                |
+  |                         |                     |                |                 |-- RPC -------->|
+  |                         |                     |                |                 |   Analisar     |
+  |                         |                     |                |                 |<-- Response ---|
+  |                         |                     |                |                 |                |
+  |                         |                     |                |                 |-- INSERT BD    |
+  |                         |                     |                |                 |-- GUI update   |
+
+================================================================================
+6. FASES DE IMPLEMENTACAO (SEGUNDO O ENUNCIADO)
+================================================================================
+
+FASE 1 - Chamadas RPC
+-----------------------
+Objetivo: Implementar chamadas RPC para pre-processamento e analise de dados.
+
+Tarefas:
+  [ ] 1.1 Definir contratos .proto para ambos os servicos RPC
+  [ ] 1.2 Implementar servico de Pre-Processamento (Python/C#)
+        - Conversao de escalas (F->C, %/100, etc.)
+        - Validacao de limites (min, max por tipo)
+        - Normalizacao de formatos
+  [ ] 1.3 Implementar servico de Analise (Python)
+        - Estatisticas descritivas (media, mediana, desvio, min, max)
+        - Detecao de anomalias/outliers
+        - Previsao simples (media movel, regressao linear)
+  [ ] 1.4 Adaptar Gateway para invocar RPC de Pre-Processamento
+  [ ] 1.5 Adaptar Servidor para invocar RPC de Analise
+
+FASE 2 - Comunicacao Pub/Sub (RabbitMQ)
+------------------------------------------
+Objetivo: Substituir comunicacao TCP direta entre Sensor e Gateway por RabbitMQ.
+
+Tarefas:
+  [ ] 2.1 Configurar RabbitMQ (Docker Compose)
+  [ ] 2.2 Adaptar Sensor (Publisher):
+        - Remover conexao TCP direta ao Gateway
+        - Conectar ao RabbitMQ
+        - Publicar medicoes em topicos
+  [ ] 2.3 Adaptar Gateway (Subscriber):
+        - Subscrever topicos de interesse
+        - Processar mensagens recebidas
+  [ ] 2.4 Implementar routing por tipo de dado e/ou zona
+  [ ] 2.5 Testar fluxo completo: Sensor -> RabbitMQ -> Gateway
+
+FASE 3 - Base de Dados + Interface
+------------------------------------
+Objetivo: Persistir dados em BD e criar interface de visualizacao.
+
+Tarefas:
+  [ ] 3.1 Modelar schema da Base de Dados
+        - Tabela: sensores (id, zona, estado)
+        - Tabela: medicoes (id, sensor_id, tipo_dado, valor, timestamp)
+        - Tabela: analises (id, sensor_id, tipo_analise, resultado, timestamp)
+  [ ] 3.2 Adaptar Servidor para usar BD (remover ficheiros .txt)
+        - Inserir medicoes
+        - Consultar historico
+        - Guardar resultados de analises
+  [ ] 3.3 Criar interface de visualizacao (CLI ou Web)
+        - Listar medicoes com filtros (data, tipo, sensor)
+        - Mostrar resultados de analises
+        - Despoletar novas analises com parametros:
+            * Intervalo temporal
+            * Tipo de sensor
+            * ID do sensor
+  [ ] 3.4 Integrar interface com servico de Analise via Servidor
+
+================================================================================
+7. ESTRUTURA DE PASTAS PROPOSTA (TP2)
+================================================================================
+
+/
+├── src/
+│   ├── SharedProtocol/         # (mantido do TP1)
+│   ├── Sensor/                 # Publisher RabbitMQ
+│   ├── Gateway/                # Subscriber RabbitMQ + RPC client
+│   ├── Servidor/               # TCP listener + BD + RPC client + GUI
+│   ├── DataStreamClient/       # Simulacao de dados
+│   ├── PreProcessamento/       # Servico RPC (Python ou C#)
+│   │   ├── servico.py
+│   │   └── requirements.txt
+│   └── Analise/                # Servico RPC (Python)
+│       ├── servico.py
+│       ├── analise_estatistica.py
+│       ├── detecao_padroes.py
+│       └── requirements.txt
+├── proto/                      # Contratos gRPC .proto
+│   ├── pre_processamento.proto
+│   └── analise.proto
+├── docker-compose.yml          # RabbitMQ + PostgreSQL + servicos
+├── docs/
+│   ├── PROTOCOLO.md            # Atualizado com RPC e Pub/Sub
+│   └── organizacao_tp_2.txt    # Este ficheiro
+├── scripts/
+│   └── setup.ps1               # Script de inicializacao
+├── SharedProtocol.sln
+└── README.md
+
+================================================================================
+8. REQUISITOS PARA O RELATORIO (4 paginas + anexos)
+================================================================================
+
+Estrutura obrigatoria:
+
+1. Protocolo de Comunicacao
+   - Definicao das chamadas RPC (metodos, parametros, respostas)
+   - Estrutura das mensagens Pub/Sub (topicos, routing keys)
+   - Formatos de dados (JSON, Protobuf)
+   - Fluxos de informacao (diagrama de sequencia)
+
+2. Implementacao
+   - Tecnologias e linguagens utilizadas (justificacao)
+   - Principais partes do codigo (comentadas)
+   - Decisoes de arquitetura
+   - Tratamento de erros e concorrencia
+
+3. Anexo - Codigo Fonte
+   - Repositorio GitHub/GitLab com issues de planeamento
+   - Codigo completo: clientes, gateways, servicos RPC, servidor

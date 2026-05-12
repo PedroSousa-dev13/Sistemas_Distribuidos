@@ -1,0 +1,14 @@
+os sensores ligam ás gateways e entermedios de pub e sub. os gateways ligam ao servidor que esta com uma base de dados 
+
+
+os gateways estão ligados por rpc ao essrivco de pre processamento 
+
+o servidor esta ligado por rpc ao serviço de analise
+
+
+
+
+podemos optar por fazer uma forma nova de recolher dados dos sensores 
+
+
+dentro do servidor deverá haver 1 gui que permita visualizar as analises dos dados ( pressupondo que os mesmos são em phyton)   filtragem de dados etc etc etc.	 

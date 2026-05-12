@@ -155,7 +155,6 @@ public class SensorClient : IDisposable
             {
                 case TiposMensagem.REGISTER_OK:
 
-                    // CORREÇÃO: interpretar corretamente o array vindo da Gateway
                     if (resposta.Payload != null &&
                         resposta.Payload.TryGetValue("tipos_dados", out var tiposObj))
                     {

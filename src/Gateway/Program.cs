@@ -6,7 +6,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 using System.Threading;
 using SharedProtocol;
 
@@ -16,15 +15,20 @@ namespace Gateway
     {
         private sealed class PendingDataMessage
         {
+            public const int MaxRetries = 3;
+
             public PendingDataMessage(Mensagem message)
             {
                 Message = message;
                 Completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                RetriesRemaining = MaxRetries;
             }
 
             public Mensagem Message { get; }
 
             public TaskCompletionSource<bool> Completion { get; }
+
+            public int RetriesRemaining { get; set; }
         }
 
         private static Dictionary<string, SensorInfo> sensors = new Dictionary<string, SensorInfo>();
@@ -39,7 +43,6 @@ namespace Gateway
 
         private static readonly object logLock = new object();
         private static readonly object serverLock = new object();
-        private static bool isServerConnected = false;
 
         static void Main(string[] args)
         {
@@ -123,7 +126,7 @@ namespace Gateway
                 if (!File.Exists(csvPath))
                 {
                     File.Create(csvPath).Close();
-                    Log("📄 CSV criado vazio.");
+                    Log("[INFO] CSV criado vazio.");
                     return;
                 }
 
@@ -149,10 +152,10 @@ namespace Gateway
                         count++;
                     }
                 }
-                Log($"✓ CSV carregado com sucesso: {count} sensor(es) encontrado(s)");
+                Log($"[OK] CSV carregado com sucesso: {count} sensor(es) encontrado(s)");
                 foreach (var sensor in sensors.Values)
                 {
-                    Log($"  └─ {sensor.SensorId} ({sensor.Estado}) - Zona: {sensor.Zona} - Tipos: {string.Join(", ", sensor.TiposDados)}");
+                    Log($"  |- {sensor.SensorId} ({sensor.Estado}) - Zona: {sensor.Zona} - Tipos: {string.Join(", ", sensor.TiposDados)}");
                 }
             }
             finally
@@ -220,20 +223,18 @@ namespace Gateway
                     serverClient.Connect(ip, port);
                     serverStream = serverClient.GetStream();
                     serverReader = new StreamReader(serverStream, new UTF8Encoding(false));
-                    isServerConnected = true;
-                    Log($"✓ Conectado ao servidor com SUCESSO! ({ip}:{port})");
+                    Log($"[OK] Conectado ao servidor com SUCESSO! ({ip}:{port})");
                     Console.WriteLine($"Conexao com servidor estabelecida!\n");
                     return;
                 }
                 catch (Exception ex)
                 {
-                    Log($"✗ Falha na tentativa {tentativas}/{maxTentativas} de conectar ao servidor: {ex.Message}");
-                    
+                    Log($"[FAIL] Falha na tentativa {tentativas}/{maxTentativas} de conectar ao servidor: {ex.Message}");
+
                     if (tentativas >= maxTentativas)
                     {
-                        Log($"❌ Falha ao conectar ao servidor após {maxTentativas} tentativas. Servidor pode estar indisponível.");
+                        Log($"[ERR] Falha ao conectar ao servidor apos {maxTentativas} tentativas. Servidor pode estar indisponivel.");
                         Console.WriteLine($"Nao foi possivel conectar ao servidor apos {maxTentativas} tentativas.\n");
-                        isServerConnected = false;
                         return;
                     }
                     
@@ -254,11 +255,19 @@ namespace Gateway
                 {
                     var pendingMessage = messageQueue.Take();
                     var success = SendToServer(pendingMessage.Message);
-                    pendingMessage.Completion.TrySetResult(success);
+                    if (!success && pendingMessage.RetriesRemaining > 0)
+                    {
+                        pendingMessage.RetriesRemaining--;
+                        Log($"Re-adicionando mensagem a fila (retry {PendingDataMessage.MaxRetries - pendingMessage.RetriesRemaining}/{PendingDataMessage.MaxRetries})");
+                        messageQueue.Add(pendingMessage);
+                    }
+                    else
+                    {
+                        pendingMessage.Completion.TrySetResult(success);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    isServerConnected = false;
                     Log($"Erro no consumidor: {ex.Message}");
                     try
                     {
@@ -283,8 +292,7 @@ namespace Gateway
                 {
                     if (serverStream == null || serverReader == null)
                     {
-                        Log($"✗ Stream do servidor não disponível");
-                        isServerConnected = false;
+                        Log($"[FAIL] Stream do servidor nao disponivel");
                         return false;
                     }
                     msg.Payload["gateway_id"] = gatewayId;
@@ -310,45 +318,44 @@ namespace Gateway
                                     var ackMsg = MensagemSerializer.Deserializar(response);
                                     if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
                                     {
-                                        Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
+                                        Log($"[OK] Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
                                         return true;
                                     }
                                     else
                                     {
-                                        Log($"⚠ Resposta inesperada do servidor: {ackMsg?.Tipo}");
+                                        Log($"[WARN] Resposta inesperada do servidor: {ackMsg?.Tipo}");
                                     }
                                 }
                                 catch (Exception ex)
                                 {
-                                    Log($"⚠ Erro ao desserializar ACK do servidor: {ex.Message}");
+                                    Log($"[WARN] Erro ao desserializar ACK do servidor: {ex.Message}");
                                 }
                             }
                         }
                         catch (TimeoutException)
                         {
-                            Log($"✗ Timeout ao aguardar ACK do servidor para DATA");
-                            isServerConnected = false;
+                            Log($"[FAIL] Timeout ao aguardar ACK do servidor para DATA");
                             return false;
                         }
                         finally
                         {
                             serverStream.ReadTimeout = Timeout.Infinite;
                         }
+
+                        return false;
                     }
                     else
                     {
-                        Log($"✓ Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor.");
+                        Log($"[OK] Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor.");
                         return true;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log($"✗ Erro ao enviar mensagem para servidor: {ex.Message}");
-                    isServerConnected = false;
+                    Log($"[FAIL] Erro ao enviar mensagem para servidor: {ex.Message}");
                     return false;
                 }
 
-                return false;
             }
         }
 
@@ -385,9 +392,6 @@ namespace Gateway
 
             bool registered = false;
             string sensorId = null;
-            string zona = "Desconhecida";
-
-            // ID único do gateway baseado na porta local
 
             try
             {
@@ -412,20 +416,26 @@ namespace Gateway
                     {
                         case TiposMensagem.REGISTER:
 
+                            bool exists;
+                            List<string> tiposDadosReg = null;
                             csvMutex.WaitOne();
-                            bool exists = sensors.ContainsKey(sensorId);
-                            bool wasActive = false;
-
-                            if (exists)
+                            try
                             {
-                                zona = sensors[sensorId].Zona;
-                                wasActive = sensors[sensorId].Estado == "ativo";
+                                exists = sensors.ContainsKey(sensorId);
 
-                                sensors[sensorId].Estado = "ativo";
-                                sensors[sensorId].LastSync = DateTime.UtcNow;
-                                EscreverCSV();
+                                if (exists)
+                                {
+                                    tiposDadosReg = sensors[sensorId].TiposDados;
+
+                                    sensors[sensorId].Estado = "ativo";
+                                    sensors[sensorId].LastSync = DateTime.UtcNow;
+                                    EscreverCSV();
+                                }
                             }
-                            csvMutex.ReleaseMutex();
+                            finally
+                            {
+                                csvMutex.ReleaseMutex();
+                            }
 
                             if (exists)
                             {
@@ -436,7 +446,7 @@ namespace Gateway
                                     sensorId,
                                     new Dictionary<string, object>
                                     {
-                                        ["tipos_dados"] = sensors[sensorId].TiposDados,
+                                        ["tipos_dados"] = tiposDadosReg,
                                         ["gateway_id"] = gatewayId
                                     },
                                     DateTime.UtcNow.ToString("o")
@@ -539,7 +549,11 @@ namespace Gateway
             }
             finally
             {
-                client.Close();
+                Log($"Sensor {sensorId ?? "desconhecido"} desconectado.");
+                stream?.Dispose();
+                reader?.Dispose();
+                writer?.Dispose();
+                client?.Close();
             }
         }
 

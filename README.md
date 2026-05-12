@@ -168,21 +168,18 @@ Sistemas_Distribuidos/
 │       ├── CodigosErro.cs          # Códigos de erro
 │       └── SharedProtocol.csproj
 ├── dados/                          # Armazenamento (criado em runtime)
-│   ├── temperatura.txt
-│   ├── humidade.txt
-│   ├── qualidade_ar.txt
-│   ├── ruido.txt
-│   ├── pm25.txt
-│   ├── pm10.txt
-│   ├── luminosidade.txt
-│   ├── imagem.txt
-│   ├── gateway.log
-│   └── servidor.log
+├── docs/                           # Documentação
+│   ├── PROTOCOLO.md
+│   ├── INDEX.md
+│   ├── APRESENTACAO.txt
+│   ├── aa.txt
+│   ├── comparacao.txt
+│   ├── melhorias.txt
+│   └── REDE_DISTRIBUIDA.txt
+├── scripts/
+│   └── create_csv.ps1
 ├── sensores.csv                    # Configuração de sensores
 ├── SharedProtocol.sln              # Solução .NET
-├── PROTOCOLO.md                    # Especificação
-├── QUICK_START_FASE3.md            # Guia rápido
-├── APRESENTACAO.txt                # Visão completa
 └── README.md                       # Este ficheiro
 ```
 
@@ -312,12 +309,11 @@ lsof -i :5000 | grep LISTEN | awk '{print $2}' | xargs kill -9
 
 | Documento | Conteúdo | Secções |
 |-----------|----------|---------|
-| [PROTOCOLO.md](PROTOCOLO.md) | Especificação técnica do protocolo | 11 |
-| [APRESENTACAO.txt](APRESENTACAO.txt) | Resumo executivo da entrega | Completa |
-| [melhorias.txt](melhorias.txt) | Melhorias e estado final | Completa |
-| [comparacao.txt](comparacao.txt) | Comparação com alternativas | Completa |
-| [aa.txt](aa.txt) | Argumentação para defesa oral | Completa |
-| [bugs.txt](bugs.txt) | Histórico de bugs corrigidos | 6/6 |
+| [PROTOCOLO.md](docs/PROTOCOLO.md) | Especificação técnica do protocolo | 11 |
+| [APRESENTACAO.txt](docs/APRESENTACAO.txt) | Resumo executivo da entrega | Completa |
+| [melhorias.txt](docs/melhorias.txt) | Melhorias e estado final | Completa |
+| [comparacao.txt](docs/comparacao.txt) | Comparação com alternativas | Completa |
+| [aa.txt](docs/aa.txt) | Argumentação para defesa oral | Completa |
 
 ---
 
