@@ -111,6 +111,76 @@
                 "focus": false,
                 "panel": "shared"
             }
+        },
+        {
+            "label": "docker-compose: start",
+            "command": "docker-compose",
+            "type": "shell",
+            "args": ["up", "-d"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "docker-compose: stop",
+            "command": "docker-compose",
+            "type": "shell",
+            "args": ["down"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "docker-compose: logs",
+            "command": "docker-compose",
+            "type": "shell",
+            "args": ["logs", "-f"],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "run-sensor-rabbitmq",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["run", "--project", "src/Sensor/Sensor.csproj", "--", "sensor-01", "localhost", "5672"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "run-gateway-rabbitmq",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["run", "--project", "src/Gateway/Gateway.csproj", "--", "127.0.0.1:6000", "./sensores.csv", "localhost", "5672"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "run-server",
+            "command": "dotnet",
+            "type": "shell",
+            "args": ["run", "--project", "src/Servidor/Servidor.csproj", "--", "127.0.0.1", "6000"],
+            "presentation": {
+                "reveal": "always",
+                "focus": true,
+                "panel": "shared"
+            }
         }
     ]
 }

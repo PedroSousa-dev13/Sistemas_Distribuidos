@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,22 +13,8 @@ namespace Gateway
 {
     class Program
     {
-        private sealed class PendingDataMessage
-        {
-            public PendingDataMessage(Mensagem message)
-            {
-                Message = message;
-                Completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            }
-
-            public Mensagem Message { get; }
-
-            public TaskCompletionSource<bool> Completion { get; }
-        }
-
         private static Dictionary<string, SensorInfo> sensors = new Dictionary<string, SensorInfo>();
         private static Mutex csvMutex = new Mutex();
-        private static BlockingCollection<PendingDataMessage> messageQueue = new BlockingCollection<PendingDataMessage>(100);
         private static TcpClient serverClient;
         private static NetworkStream serverStream;
         private static StreamReader serverReader;
@@ -37,85 +22,281 @@ namespace Gateway
         private static string csvPath;
         private static string gatewayId;
         private static PreProcessamentoClient preProcessamentoClient = new PreProcessamentoClient();
+        private static RabbitMQGatewayClient rabbitMQClient;
 
         private static readonly object logLock = new object();
         private static readonly object serverLock = new object();
         private static bool isServerConnected = false;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             if (args.Length < 3)
             {
-                Console.WriteLine("Uso: Gateway <portoEscuta> <servidorEndpoint> <caminhoCSV>");
+                Console.WriteLine("Uso: Gateway <serverEndpoint> <caminhoCSV> [RABBITMQ_HOST] [RABBITMQ_PORT]");
                 return;
             }
 
-            int listenPort = int.Parse(args[0]);
-            serverEndpoint = args[1];
-            csvPath = args[2];
-            gatewayId = $"gateway-{listenPort}";
+            serverEndpoint = args[0];
+            csvPath = args[1];
+            var rabbitMQHost = args.Length > 2 ? args[2] : "localhost";
+            var rabbitMQPort = args.Length > 3 && int.TryParse(args[3], out int port) ? port : 5672;
+            gatewayId = $"gateway-{Guid.NewGuid():N}".Substring(0, 20);
 
-
-            ExibirBannerInicial(listenPort, serverEndpoint, csvPath);
+            ExibirBannerInicial(serverEndpoint, csvPath, rabbitMQHost, rabbitMQPort);
 
             LerCSV();
             ConnectToServer();
 
-            // Start consumer thread
-            Thread consumerThread = new Thread(ConsumerWorker) { IsBackground = true };
-            consumerThread.Start();
+            // Inicializar cliente RabbitMQ
+            rabbitMQClient = new RabbitMQGatewayClient(gatewayId, sensors, rabbitMQHost, rabbitMQPort);
+            rabbitMQClient.OnLog += (s, msg) => Log($"[RabbitMQ] {msg}");
+            rabbitMQClient.OnMensagemRecebida += ProcessarMensagemRecebida;
+
+            if (!await rabbitMQClient.IniciarAsync())
+            {
+                Log("[ERRO] Falha ao iniciar cliente RabbitMQ");
+                return;
+            }
 
             // Start watchdog thread
             Thread watchdogThread = new Thread(WatchdogWorker) { IsBackground = true };
             watchdogThread.Start();
 
-            // Start TCP listener
-            TcpListener listener = new TcpListener(IPAddress.Any, listenPort);
-            listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            listener.Start();
-            
-            ExibirGatewayPronta(listenPort);
-            Log($"Gateway iniciada com sucesso no porto {listenPort}");
+            ExibirGatewayPronta(serverEndpoint);
+            Log($"Gateway iniciada com sucesso - ID: {gatewayId}");
 
-            while (true)
+            Console.WriteLine("\nPressione Ctrl+C para terminar...\n");
+            
+            // Keep the application running
+            try
             {
-                try
-                {
-                    TcpClient client = listener.AcceptTcpClient();
-                    Thread sensorThread = new Thread(() => HandleSensor(client)) { IsBackground = true };
-                    sensorThread.Start();
-                }
-                catch (Exception ex)
-                {
-                    Log($"Erro ao aceitar conexão de sensor: {ex.Message}");
-                }
+                await Task.Delay(Timeout.Infinite);
+            }
+            catch (OperationCanceledException)
+            {
+                Log("Encerrando gateway...");
+            }
+            finally
+            {
+                await rabbitMQClient.PararAsync();
             }
         }
 
-        private static void ExibirBannerInicial(int porta, string servidor, string csv)
+        private static void ProcessarMensagemRecebida(object sender, Mensagem msg)
         {
-            Console.WriteLine("\n+---------------------------------------------------------------+");
-            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido - TP2               |");
-            Console.WriteLine("|       RPC de Pre-Processamento (FASE 1)                     |");
-            Console.WriteLine("+---------------------------------------------------------------+\n");
-            
-            Console.WriteLine("Configuracao Inicial:");
-            Console.WriteLine($"  Porto de escuta para Sensores: {porta}");
-            Console.WriteLine($"  Servidor remoto: {servidor}");
-            Console.WriteLine($"  Ficheiro CSV de sensores: {csv}");
-            Console.WriteLine($"  RPC Pre-Processamento: http://127.0.0.1:5001");
-            Console.WriteLine();
+            try
+            {
+                var sensorId = msg.SensorId;
+
+                Log($"[PROCESSAMENTO] Tipo: {msg.Tipo}, Sensor: {sensorId}");
+
+                switch (msg.Tipo)
+                {
+                    case TiposMensagem.REGISTER:
+                        ProcessarRegister(msg);
+                        break;
+
+                    case TiposMensagem.DATA:
+                        ProcessarData(msg);
+                        break;
+
+                    case TiposMensagem.HEARTBEAT:
+                        ProcessarHeartbeat(msg);
+                        break;
+
+                    default:
+                        Log($"[AVISO] Tipo de mensagem desconhecido: {msg.Tipo}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"[ERRO] Erro ao processar mensagem: {ex.Message}");
+            }
         }
 
-        private static void ExibirGatewayPronta(int porta)
+        private static void ProcessarRegister(Mensagem msg)
         {
-            Console.WriteLine("GATEWAY INICIADA COM SUCESSO!");
-            Console.WriteLine("===============================================================");
-            Console.WriteLine($"Aguardando conexoes de sensores na porta {porta}...");
-            Console.WriteLine("Ligada ao servidor remoto");
-            Console.WriteLine("Sistema de heartbeat ativo");
-            Console.WriteLine("Monitor de sensores ativo (timeout: 60s)");
-            Console.WriteLine("===============================================================\n");
+            string sensorId = msg.SensorId;
+            csvMutex.WaitOne();
+            try
+            {
+                if (sensors.ContainsKey(sensorId))
+                {
+                    sensors[sensorId].Estado = "ativo";
+                    sensors[sensorId].LastSync = DateTime.UtcNow;
+                    EscreverCSV();
+                    Log($"✓ Sensor {sensorId} registado com sucesso");
+                }
+                else
+                {
+                    Log($"✗ Sensor {sensorId} não encontrado no CSV");
+                }
+            }
+            finally
+            {
+                csvMutex.ReleaseMutex();
+            }
+        }
+
+        private static void ProcessarData(Mensagem msg)
+        {
+            string sensorId = msg.SensorId;
+            string tipoDado = msg.Payload.GetValueOrDefault("tipo_dado", "")?.ToString() ?? "";
+            object valorObj = msg.Payload.GetValueOrDefault("valor");
+
+            Log($"[DATA] Sensor: {sensorId}, Tipo: {tipoDado}, Valor: {valorObj}");
+
+            // --- RPC: Pre-Processamento (Uniformizar + Validar) ---
+            if (!string.IsNullOrEmpty(tipoDado) && valorObj != null)
+            {
+                double valorOriginal = 0;
+                try { valorOriginal = Convert.ToDouble(valorObj); }
+                catch { valorOriginal = 0; }
+
+                var rpcResult = preProcessamentoClient
+                    .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
+                    .GetAwaiter().GetResult();
+
+                if (rpcResult?.Sucesso == true)
+                {
+                    msg.Payload["valor"] = rpcResult.ValorUniformizado;
+                    msg.Payload["unidade"] = rpcResult.Unidade;
+                    Log($"[RPC] Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
+
+                    var validacao = preProcessamentoClient
+                        .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
+                        .GetAwaiter().GetResult();
+
+                    if (validacao?.Valido == false)
+                    {
+                        string erros = string.Join("; ", validacao.Erros);
+                        Log($"[RPC] Validar: {sensorId}/{tipoDado} - REJEITADO: {erros}");
+                        return;
+                    }
+
+                    Log($"[RPC] Validar: {sensorId}/{tipoDado} - VALIDO");
+                }
+                else
+                {
+                    Log($"[AVISO] RPC Uniformizar falhou: {rpcResult?.Erro ?? "servico indisponivel"} - a usar valor original");
+                }
+            }
+
+            msg.Payload["gateway_id"] = gatewayId;
+
+            // Enviar para servidor
+            if (SendToServer(msg))
+            {
+                AtualizarLastSync(sensorId);
+            }
+        }
+
+        private static void ProcessarHeartbeat(Mensagem msg)
+        {
+            string sensorId = msg.SensorId;
+            AtualizarLastSync(sensorId);
+            Log($"[HEARTBEAT] Sensor {sensorId} online");
+        }
+
+        private static bool SendToServer(Mensagem msg)
+        {
+            lock (serverLock)
+            {
+                try
+                {
+                    if (serverStream == null || serverReader == null)
+                    {
+                        Log($"✗ Stream do servidor não disponível");
+                        isServerConnected = false;
+                        return false;
+                    }
+
+                    string json = MensagemSerializer.Serializar(msg) + "\n";
+                    byte[] data = Encoding.UTF8.GetBytes(json);
+                    serverStream.Write(data, 0, data.Length);
+                    serverStream.Flush();
+
+                    // Apenas aguardar resposta para mensagens DATA
+                    if (msg.Tipo == TiposMensagem.DATA)
+                    {
+                        serverStream.ReadTimeout = 5000;
+                        try
+                        {
+                            string response = serverReader.ReadLine();
+
+                            if (response != null)
+                            {
+                                try
+                                {
+                                    var ackMsg = MensagemSerializer.Deserializar(response);
+                                    if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
+                                    {
+                                        Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso");
+                                        return true;
+                                    }
+                                    else
+                                    {
+                                        Log($"⚠ Resposta inesperada do servidor: {ackMsg?.Tipo}");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log($"⚠ Erro ao desserializar ACK: {ex.Message}");
+                                }
+                            }
+                        }
+                        catch (TimeoutException)
+                        {
+                            Log($"✗ Timeout ao aguardar ACK do servidor");
+                            isServerConnected = false;
+                            return false;
+                        }
+                        finally
+                        {
+                            serverStream.ReadTimeout = Timeout.Infinite;
+                        }
+                    }
+                    else
+                    {
+                        Log($"✓ Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor");
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"✗ Erro ao enviar para servidor: {ex.Message}");
+                    isServerConnected = false;
+                    return false;
+                }
+
+                return false;
+            }
+        }
+
+        private static void WatchdogWorker()
+        {
+            while (true)
+            {
+                Thread.Sleep(30000);
+                csvMutex.WaitOne();
+                try
+                {
+                    foreach (var sensor in sensors.Values)
+                    {
+                        if ((DateTime.UtcNow - sensor.LastSync.ToUniversalTime()).TotalSeconds > 60 && sensor.Estado == "ativo")
+                        {
+                            sensor.Estado = "manutencao";
+                            Log($"Sensor {sensor.SensorId} marcado como manutencao por timeout");
+                        }
+                    }
+                    EscreverCSV();
+                }
+                finally
+                {
+                    csvMutex.ReleaseMutex();
+                }
+            }
         }
 
         private static void LerCSV()
@@ -126,7 +307,7 @@ namespace Gateway
                 if (!File.Exists(csvPath))
                 {
                     File.Create(csvPath).Close();
-                    Log("📄 CSV criado vazio.");
+                    Log("📄 CSV criado vazio");
                     return;
                 }
 
@@ -136,7 +317,7 @@ namespace Gateway
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;
                     if (line.TrimStart().StartsWith("#")) continue;
-                    
+
                     var parts = line.Split('|');
                     if (parts.Length >= 5)
                     {
@@ -152,10 +333,10 @@ namespace Gateway
                         count++;
                     }
                 }
-                Log($"✓ CSV carregado com sucesso: {count} sensor(es) encontrado(s)");
+                Log($"✓ CSV carregado: {count} sensor(es)");
                 foreach (var sensor in sensors.Values)
                 {
-                    Log($"  └─ {sensor.SensorId} ({sensor.Estado}) - Zona: {sensor.Zona} - Tipos: {string.Join(", ", sensor.TiposDados)}");
+                    Log($"  └─ {sensor.SensorId} ({sensor.Estado}) - Zona: {sensor.Zona}");
                 }
             }
             finally
@@ -181,27 +362,10 @@ namespace Gateway
             }
         }
 
-        private static void AlterarEstado(string id, string estado)
-        {
-            csvMutex.WaitOne();
-            try
-            {
-                if (sensors.ContainsKey(id))
-                {
-                    sensors[id].Estado = estado;
-                    EscreverCSV();
-                    Log($"Estado do sensor {id} alterado para {estado}");
-                }
-            }
-            finally
-            {
-                csvMutex.ReleaseMutex();
-            }
-        }
-
         private static void EscreverCSV()
         {
-            var lines = sensors.Values.Select(s => $"{s.SensorId}|{s.Estado}|{s.Zona}|[{string.Join(",", s.TiposDados)}]|{s.LastSync:o}");
+            var lines = sensors.Values.Select(s => 
+                $"{s.SensorId}|{s.Estado}|{s.Zona}|[{string.Join(",", s.TiposDados)}]|{s.LastSync:o}");
             File.WriteAllLines(csvPath, lines);
         }
 
@@ -211,8 +375,8 @@ namespace Gateway
             string ip = parts[0];
             int port = int.Parse(parts[1]);
             int tentativas = 0;
-            int maxTentativas = 10;  // Limite máximo de tentativas
-            
+            int maxTentativas = 10;
+
             while (tentativas < maxTentativas)
             {
                 tentativas++;
@@ -230,385 +394,58 @@ namespace Gateway
                 }
                 catch (Exception ex)
                 {
-                    Log($"✗ Falha na tentativa {tentativas}/{maxTentativas} de conectar ao servidor: {ex.Message}");
-                    
+                    Log($"✗ Falha na tentativa {tentativas}/{maxTentativas}: {ex.Message}");
+
                     if (tentativas >= maxTentativas)
                     {
-                        Log($"❌ Falha ao conectar ao servidor após {maxTentativas} tentativas. Servidor pode estar indisponível.");
+                        Log($"❌ Falha após {maxTentativas} tentativas");
                         Console.WriteLine($"Nao foi possivel conectar ao servidor apos {maxTentativas} tentativas.\n");
                         isServerConnected = false;
                         return;
                     }
-                    
+
                     if (tentativas % 3 == 0)
                     {
-                        Console.WriteLine($"Aguardando 5 segundos antes de tentar novamente...\n");
+                        Console.WriteLine($"Aguardando 5 segundos...\n");
                     }
                     Thread.Sleep(5000);
                 }
             }
         }
 
-        private static void ConsumerWorker()
+        private static void ExibirBannerInicial(string servidor, string csv, string host, int port)
         {
-            while (true)
-            {
-                try
-                {
-                    var pendingMessage = messageQueue.Take();
-                    var success = SendToServer(pendingMessage.Message);
-                    pendingMessage.Completion.TrySetResult(success);
-                }
-                catch (Exception ex)
-                {
-                    isServerConnected = false;
-                    Log($"Erro no consumidor: {ex.Message}");
-                    try
-                    {
-                        if (serverClient == null || !serverClient.Connected)
-                        {
-                            ConnectToServer();
-                        }
-                    }
-                    catch
-                    {
-                        Log("Falha ao reconectar ao servidor.");
-                    }
-                }
-            }
+            Console.WriteLine("\n+---------------------------------------------------------------+");
+            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido (RabbitMQ)           |");
+            Console.WriteLine("|       RPC de Pre-Processamento (FASE 1)                     |");
+            Console.WriteLine("+---------------------------------------------------------------+\n");
+
+            Console.WriteLine("Configuracao Inicial:");
+            Console.WriteLine($"  Servidor remoto: {servidor}");
+            Console.WriteLine($"  Ficheiro CSV de sensores: {csv}");
+            Console.WriteLine($"  RabbitMQ: {host}:{port}");
+            Console.WriteLine($"  RPC Pre-Processamento: http://127.0.0.1:5001");
+            Console.WriteLine();
         }
 
-        private static bool SendToServer(Mensagem msg)
+        private static void ExibirGatewayPronta(string servidor)
         {
-            lock (serverLock)
-            {
-                try
-                {
-                    if (serverStream == null || serverReader == null)
-                    {
-                        Log($"✗ Stream do servidor não disponível");
-                        isServerConnected = false;
-                        return false;
-                    }
-                    msg.Payload["gateway_id"] = gatewayId;
-
-
-                    string json = MensagemSerializer.Serializar(msg) + "\n";
-                    byte[] data = Encoding.UTF8.GetBytes(json);
-                    serverStream.Write(data, 0, data.Length);
-                    serverStream.Flush();
-
-                    // Apenas aguardar resposta para mensagens DATA (que esperam DATA_ACK)
-                    if (msg.Tipo == TiposMensagem.DATA)
-                    {
-                        serverStream.ReadTimeout = 5000;
-                        try
-                        {
-                            string response = serverReader.ReadLine();
-                            
-                            if (response != null)
-                            {
-                                try
-                                {
-                                    var ackMsg = MensagemSerializer.Deserializar(response);
-                                    if (ackMsg?.Tipo == TiposMensagem.DATA_ACK)
-                                    {
-                                        Log($"✓ Mensagem DATA de {msg.SensorId} encaminhada com sucesso. ACK recebida do servidor.");
-                                        return true;
-                                    }
-                                    else
-                                    {
-                                        Log($"⚠ Resposta inesperada do servidor: {ackMsg?.Tipo}");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Log($"⚠ Erro ao desserializar ACK do servidor: {ex.Message}");
-                                }
-                            }
-                        }
-                        catch (TimeoutException)
-                        {
-                            Log($"✗ Timeout ao aguardar ACK do servidor para DATA");
-                            isServerConnected = false;
-                            return false;
-                        }
-                        finally
-                        {
-                            serverStream.ReadTimeout = Timeout.Infinite;
-                        }
-                    }
-                    else
-                    {
-                        Log($"✓ Mensagem {msg.Tipo} de {msg.SensorId} encaminhada ao servidor.");
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Log($"✗ Erro ao enviar mensagem para servidor: {ex.Message}");
-                    isServerConnected = false;
-                    return false;
-                }
-
-                return false;
-            }
+            Console.WriteLine("GATEWAY INICIADA COM SUCESSO!");
+            Console.WriteLine("===============================================================");
+            Console.WriteLine($"Conectada ao RabbitMQ (Consumer de tópicos sensor.*)");
+            Console.WriteLine($"Ligada ao servidor remoto: {servidor}");
+            Console.WriteLine("Sistema de heartbeat ativo");
+            Console.WriteLine("Monitor de sensores ativo (timeout: 60s)");
+            Console.WriteLine("===============================================================\n");
         }
-
-        private static void WatchdogWorker()
-        {
-            while (true)
-            {
-                Thread.Sleep(30000);
-                csvMutex.WaitOne();
-                try
-                {
-                    foreach (var sensor in sensors.Values)
-                    {
-                        if ((DateTime.UtcNow - sensor.LastSync.ToUniversalTime()).TotalSeconds > 60 && sensor.Estado == "ativo")
-                        {
-                            sensor.Estado = "manutencao";
-                            Log($"Sensor {sensor.SensorId} marcado como manutencao por timeout.");
-                        }
-                    }
-                    EscreverCSV();
-                }
-                finally
-                {
-                    csvMutex.ReleaseMutex();
-                }
-            }
-        }
-
-        private static void HandleSensor(TcpClient client)
-        {
-            NetworkStream stream = client.GetStream();
-            var reader = new StreamReader(stream, new UTF8Encoding(false));
-            var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
-
-            bool registered = false;
-            string sensorId = null;
-            string zona = "Desconhecida";
-
-            try
-            {
-                while (true)
-                {
-                    string line = reader.ReadLine();
-                    if (line == null)
-                    {
-                        Console.WriteLine($"[Gateway] Sensor {sensorId} desconectado (stream fechado).");
-                        break;
-                    }
-
-                    Mensagem msg;
-                    try
-                    {
-                        msg = MensagemSerializer.Deserializar(line);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    sensorId = msg.SensorId;
-
-                    switch (msg.Tipo)
-                    {
-                        case TiposMensagem.REGISTER:
-                            csvMutex.WaitOne();
-                            bool exists = sensors.ContainsKey(sensorId);
-
-                            if (exists)
-                            {
-                                zona = sensors[sensorId].Zona;
-                                sensors[sensorId].Estado = "ativo";
-                                sensors[sensorId].LastSync = DateTime.UtcNow;
-                                EscreverCSV();
-                            }
-                            csvMutex.ReleaseMutex();
-
-                            if (exists)
-                            {
-                                registered = true;
-
-                                var response = new Mensagem(
-                                    TiposMensagem.REGISTER_OK,
-                                    sensorId,
-                                    new Dictionary<string, object>
-                                    {
-                                        ["tipos_dados"] = sensors[sensorId].TiposDados,
-                                        ["gateway_id"] = gatewayId
-                                    },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-
-                                writer.WriteLine(MensagemSerializer.Serializar(response));
-                            }
-                            else
-                            {
-                                var response = new Mensagem(
-                                    TiposMensagem.REGISTER_ERR,
-                                    sensorId,
-                                    new Dictionary<string, object>
-                                    {
-                                        ["error_code"] = CodigosErro.SENSOR_NOT_FOUND,
-                                        ["description"] = "Sensor não encontrado"
-                                    },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-
-                                writer.WriteLine(MensagemSerializer.Serializar(response));
-                            }
-
-                            break;
-
-                        case TiposMensagem.DATA:
-
-                            if (!registered)
-                            {
-                                var error = new Mensagem(
-                                    TiposMensagem.ERROR,
-                                    sensorId,
-                                    new Dictionary<string, object>
-                                    {
-                                        ["error_code"] = "NOT_REGISTERED",
-                                        ["gateway_id"] = gatewayId
-                                    },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-
-                                writer.WriteLine(MensagemSerializer.Serializar(error));
-                                break;
-                            }
-
-                            // --- RPC: Pre-Processamento (Uniformizar + Validar) ---
-                            if (msg.Payload.TryGetValue("tipo_dado", out var tipoDadoObj) &&
-                                msg.Payload.TryGetValue("valor", out var valorObj))
-                            {
-                                string tipoDado = tipoDadoObj?.ToString() ?? "";
-                                double valorOriginal = 0;
-                                try { valorOriginal = Convert.ToDouble(valorObj); }
-                                catch { valorOriginal = 0; }
-
-                                var rpcResult = preProcessamentoClient
-                                    .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
-                                    .GetAwaiter().GetResult();
-
-                                if (rpcResult?.Sucesso == true)
-                                {
-                                    msg.Payload["valor"] = rpcResult.ValorUniformizado;
-                                    msg.Payload["unidade"] = rpcResult.Unidade;
-                                    Log($"RPC Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
-
-                                    var validacao = preProcessamentoClient
-                                        .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
-                                        .GetAwaiter().GetResult();
-
-                                    if (validacao?.Valido == false)
-                                    {
-                                        string erros = string.Join("; ", validacao.Erros);
-                                        Log($"RPC Validar: {sensorId}/{tipoDado} - REJEITADO: {erros}");
-
-                                        var error = new Mensagem(
-                                            TiposMensagem.ERROR,
-                                            sensorId,
-                                            new Dictionary<string, object>
-                                            {
-                                                ["error_code"] = "INVALID_DATA",
-                                                ["description"] = erros,
-                                                ["gateway_id"] = gatewayId
-                                            },
-                                            DateTime.UtcNow.ToString("o")
-                                        );
-
-                                        writer.WriteLine(MensagemSerializer.Serializar(error));
-                                        break;
-                                    }
-
-                                    Log($"RPC Validar: {sensorId}/{tipoDado} - VALIDO");
-                                }
-                                else
-                                {
-                                    Log($"RPC Uniformizar falhou: {rpcResult?.Erro ?? "servico indisponivel"} - a usar valor original");
-                                }
-                            }
-
-                            msg.Payload["gateway_id"] = gatewayId;
-
-                            var pending = new PendingDataMessage(msg);
-                            messageQueue.Add(pending);
-
-                            if (pending.Completion.Task.Wait(TimeSpan.FromSeconds(10)))
-                            {
-                                var ack = new Mensagem(
-                                    TiposMensagem.DATA_ACK,
-                                    sensorId,
-                                    new Dictionary<string, object>
-                                    {
-                                        ["gateway_id"] = gatewayId
-                                    },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-
-                                writer.WriteLine(MensagemSerializer.Serializar(ack));
-                            }
-                            else
-                            {
-                                var error = new Mensagem(
-                                    TiposMensagem.ERROR,
-                                    sensorId,
-                                    new Dictionary<string, object>
-                                    {
-                                        ["error_code"] = CodigosErro.SERVER_UNAVAILABLE,
-                                        ["gateway_id"] = gatewayId
-                                    },
-                                    DateTime.UtcNow.ToString("o")
-                                );
-
-                                writer.WriteLine(MensagemSerializer.Serializar(error));
-                            }
-
-                            break;
-
-                        case TiposMensagem.HEARTBEAT:
-
-                            AtualizarLastSync(sensorId);
-
-                            var hbAck = new Mensagem(
-                                TiposMensagem.HEARTBEAT_ACK,
-                                sensorId,
-                                new Dictionary<string, object>
-                                {
-                                    ["gateway_id"] = gatewayId
-                                },
-                                DateTime.UtcNow.ToString("o")
-                            );
-
-                            writer.WriteLine(MensagemSerializer.Serializar(hbAck));
-                            break;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Gateway] Sensor {sensorId} desconectado (erro: {ex.Message}).");
-            }
-            finally
-            {
-                // IMPORTANTE: só fecha a ligação com o SENSOR
-                stream?.Close();
-                client?.Close();
-            }
-        }
-
-
 
         private static void Log(string message)
         {
             lock (logLock)
             {
-                File.AppendAllText("gateway.log", $"{DateTime.Now:o}: {message}\n");
+                var timestamp = $"{DateTime.Now:o}";
+                Console.WriteLine($"[{timestamp}] {message}");
+                File.AppendAllText("gateway.log", $"{timestamp}: {message}\n");
             }
         }
     }

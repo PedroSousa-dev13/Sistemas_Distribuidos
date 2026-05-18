@@ -21,7 +21,7 @@ class Program
     static async Task Main(string[] args)
     {
         Console.WriteLine("+--------------------------------------------------------------+");
-        Console.WriteLine("|            SENSOR - Sistema IoT Distribuido                 |");
+        Console.WriteLine("|     SENSOR - Sistema IoT Distribuido (com RabbitMQ)        |");
         Console.WriteLine("+--------------------------------------------------------------+");
         Console.WriteLine();
 
@@ -31,15 +31,15 @@ class Program
             return;
         }
 
-        var gatewayIp = args[0];
-        var gatewayPort = int.Parse(args[1]);
-        var sensorId = args[2];
+        var sensorId = args[0];
+        var rabbitMQHost = args.Length > 1 ? args[1] : "localhost";
+        var rabbitMQPort = args.Length > 2 && int.TryParse(args[2], out int port) ? port : 5672;
 
-        Console.WriteLine($"Gateway: {gatewayIp}:{gatewayPort}");
+        Console.WriteLine($"RabbitMQ Host: {rabbitMQHost}:{rabbitMQPort}");
         Console.WriteLine($"Sensor ID: {sensorId}");
         Console.WriteLine();
 
-        using var sensor = new SensorClient(gatewayIp, gatewayPort, sensorId);
+        using var sensor = new RabbitMQSensorClient(sensorId, rabbitMQHost, rabbitMQPort);
         sensor.OnLog += (s, msg) => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
 
         try
@@ -64,25 +64,13 @@ class Program
 
     private static bool ValidarArgumentos(string[] args)
     {
-        if (args.Length < 3)
+        if (args.Length < 1)
         {
             Console.WriteLine("[ERRO] Número insuficiente de argumentos.");
             return false;
         }
 
-        if (!IPAddress.TryParse(args[0], out _))
-        {
-            Console.WriteLine($"[ERRO] IP inválido: '{args[0]}'");
-            return false;
-        }
-
-        if (!int.TryParse(args[1], out int port) || port < 1 || port > 65535)
-        {
-            Console.WriteLine($"[ERRO] Porto inválido: '{args[1]}'");
-            return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(args[2]))
+        if (string.IsNullOrWhiteSpace(args[0]))
         {
             Console.WriteLine("[ERRO] ID do sensor não pode ser vazio.");
             return false;
@@ -93,13 +81,15 @@ class Program
 
     private static void ExibirUso()
     {
-        Console.WriteLine("Uso: Sensor <IP_GATEWAY> <PORTO_GATEWAY> <SENSOR_ID>");
+        Console.WriteLine("Uso: Sensor <SENSOR_ID> [RABBITMQ_HOST] [RABBITMQ_PORT]");
         Console.WriteLine();
         Console.WriteLine("Exemplo:");
-        Console.WriteLine("  Sensor 127.0.0.1 5000 sensor_001");
+        Console.WriteLine("  Sensor sensor-01");
+        Console.WriteLine("  Sensor sensor-01 localhost 5672");
+        Console.WriteLine("  Sensor sensor-01 192.168.1.100 5672");
     }
 
-    private static async Task MenuPrincipalAsync(SensorClient sensor)
+    private static async Task MenuPrincipalAsync(RabbitMQSensorClient sensor)
     {
         Console.WriteLine();
         Console.WriteLine("==========================================================");
@@ -115,7 +105,7 @@ class Program
             int index = 1;
             var opcoes = new List<(string numero, string tipo, string descricao)>();
 
-            foreach (var tipo in SensorClient.TiposDadosSuportados)
+            foreach (var tipo in RabbitMQSensorClient.TiposDadosSuportados)
             {
                 if (TiposDescricao.TryGetValue(tipo, out var desc))
                 {
@@ -146,7 +136,7 @@ class Program
         }
     }
 
-    private static async Task ProcessarOpcaoAsync(SensorClient sensor, string tipoDado, string descricao)
+    private static async Task ProcessarOpcaoAsync(RabbitMQSensorClient sensor, string tipoDado, string descricao)
     {
         object valor;
 
