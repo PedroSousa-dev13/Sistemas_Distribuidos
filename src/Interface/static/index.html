@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IoT Analytics - Painel Distribuído</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background Animated Orbs for Depth -->
+    <div class="orb-container">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header class="glass-header">
+            <div class="logo-area">
+                <div class="logo-glow"></div>
+                <i class="fa-solid fa-microchip logo-icon"></i>
+                <div class="logo-text">
+                    <h1>IoT<span>Analytics</span></h1>
+                    <p>Fase 3 - Painel de Controle e Análise Distribuída</p>
+                </div>
+            </div>
+            
+            <div class="status-panel">
+                <div class="status-item" id="status-db">
+                    <span class="status-dot green"></span>
+                    <span class="status-label">SQLite BD:</span>
+                    <span class="status-val">Conectado</span>
+                </div>
+                <div class="status-item" id="status-rpc">
+                    <span class="status-dot" id="rpc-dot"></span>
+                    <span class="status-label">RPC Análise:</span>
+                    <span class="status-val" id="rpc-status-txt">A verificar...</span>
+                </div>
+                <button class="btn-refresh" id="btn-global-refresh" title="Atualizar Tudo">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Grid Layout -->
+        <main class="dashboard-grid">
+            
+            <!-- Controls Sidebar (Left) -->
+            <section class="glass-panel sidebar-panel">
+                <div class="panel-header">
+                    <i class="fa-solid fa-sliders header-icon"></i>
+                    <h2>Filtros e Configurações</h2>
+                </div>
+                
+                <div class="form-group">
+                    <label for="select-sensor">
+                        <i class="fa-solid fa-tower-broadcast"></i> Sensor Ativo
+                    </label>
+                    <div class="select-wrapper">
+                        <select id="select-sensor">
+                            <option value="">Carregando sensores...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="select-tipo">
+                        <i class="fa-solid fa-chart-line"></i> Tipo de Dado
+                    </label>
+                    <div class="select-wrapper">
+                        <select id="select-tipo">
+                            <option value="">Carregando tipos...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="input-limite">
+                        <i class="fa-solid fa-list-numeric"></i> Histórico de Amostras
+                    </label>
+                    <div class="range-wrapper">
+                        <input type="range" id="input-limite" min="10" max="500" value="100">
+                        <span id="limite-val">100</span>
+                    </div>
+                </div>
+
+                <div class="separator"></div>
+
+                <div class="analysis-triggers">
+                    <h3>Disparar Análise RPC (Porta 6001)</h3>
+                    
+                    <button class="btn-analysis" id="btn-run-stats" data-type="estatisticas">
+                        <i class="fa-solid fa-calculator"></i>
+                        <span>Estatísticas Avançadas</span>
+                        <small>Média, Desvios e Quartis</small>
+                    </button>
+                    
+                    <button class="btn-analysis" id="btn-run-patterns" data-type="padroes">
+                        <i class="fa-solid fa-magnifying-glass-chart"></i>
+                        <span>Deteção de Padrões</span>
+                        <small>Z-Score e Anomalias</small>
+                    </button>
+                    
+                    <button class="btn-analysis" id="btn-run-previsao" data-type="previsao">
+                        <i class="fa-solid fa-crystal-ball"></i>
+                        <span>Previsão de Risco</span>
+                        <small>Tendência e Próximo Valor</small>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Metrics & Visualization Area (Center) -->
+            <section class="main-content-area">
+                
+                <!-- Quick KPI Stats Cards -->
+                <div class="kpi-grid">
+                    <div class="glass-card kpi-card" id="kpi-current">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Último Valor</span>
+                            <h3 class="kpi-value">--</h3>
+                            <span class="kpi-subtext">Atualizado há instantes</span>
+                        </div>
+                        <div class="kpi-icon-wrapper blue-glow">
+                            <i class="fa-solid fa-gauge-high"></i>
+                        </div>
+                    </div>
+
+                    <div class="glass-card kpi-card" id="kpi-average">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Média Histórica</span>
+                            <h3 class="kpi-value">--</h3>
+                            <span class="kpi-subtext">Janela de amostras</span>
+                        </div>
+                        <div class="kpi-icon-wrapper purple-glow">
+                            <i class="fa-solid fa-circle-nodes"></i>
+                        </div>
+                    </div>
+
+                    <div class="glass-card kpi-card" id="kpi-trend">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Tendência Analítica</span>
+                            <h3 class="kpi-value text-glow">--</h3>
+                            <span class="kpi-subtext" id="kpi-trend-sub">Sem análise ativa</span>
+                        </div>
+                        <div class="kpi-icon-wrapper green-glow" id="kpi-trend-icon">
+                            <i class="fa-solid fa-arrow-trend-up"></i>
+                        </div>
+                    </div>
+
+                    <div class="glass-card kpi-card" id="kpi-risk">
+                        <div class="kpi-info">
+                            <span class="kpi-label">Nível de Risco</span>
+                            <h3 class="kpi-value text-glow-red">--</h3>
+                            <span class="kpi-subtext" id="kpi-risk-sub">Sem cálculo ativo</span>
+                        </div>
+                        <div class="kpi-icon-wrapper orange-glow" id="kpi-risk-icon">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Chart Card -->
+                <div class="glass-panel chart-panel">
+                    <div class="panel-header chart-header">
+                        <div class="header-left">
+                            <i class="fa-solid fa-chart-area header-icon"></i>
+                            <div>
+                                <h2>Gráfico Temporal de Medições</h2>
+                                <p id="chart-sub-title">Selecione filtros para exibir o gráfico</p>
+                            </div>
+                        </div>
+                        <div class="chart-controls">
+                            <span class="badge" id="data-count-badge">0 pontos</span>
+                        </div>
+                    </div>
+                    
+                    <div class="chart-wrapper">
+                        <canvas id="sensorChart"></canvas>
+                        <div class="chart-placeholder" id="chart-loading">
+                            <div class="spinner"></div>
+                            <p>Carregando dados das medições...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Grid: Terminal and History -->
+                <div class="bottom-grid">
+                    
+                    <!-- Terminal Console (Real-time events) -->
+                    <div class="glass-panel terminal-panel">
+                        <div class="panel-header">
+                            <i class="fa-solid fa-terminal header-icon"></i>
+                            <h2>Consola de Eventos em Tempo Real</h2>
+                            <button class="btn-clear" id="btn-clear-terminal" title="Limpar Consola">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                        <div class="terminal-body" id="terminal-output">
+                            <div class="terminal-line system-line">[SISTEMA] Dashboard iniciado. Conectando à base de dados SQLite...</div>
+                            <div class="terminal-line system-line">[SISTEMA] Para iniciar o fluxo, execute a simulação do Sensor e a Gateway.</div>
+                        </div>
+                    </div>
+
+                    <!-- Historic Analyses Table -->
+                    <div class="glass-panel history-panel">
+                        <div class="panel-header">
+                            <i class="fa-solid fa-history header-icon"></i>
+                            <h2>Histórico de Análises Realizadas</h2>
+                        </div>
+                        <div class="table-wrapper">
+                            <table class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Hora (UTC)</th>
+                                        <th>Sensor</th>
+                                        <th>Tipo Dado</th>
+                                        <th>Análise</th>
+                                        <th>Resultado Resumido</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-table-body">
+                                    <tr>
+                                        <td colspan="5" class="table-empty">Sem registos de análises executadas.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Notification system -->
+    <div id="notification-toast" class="toast hidden">
+        <i class="fa-solid fa-circle-info toast-icon"></i>
+        <div class="toast-content">
+            <h4 class="toast-title">Notificação</h4>
+            <p class="toast-desc">Mensagem de informação.</p>
+        </div>
+    </div>
+
+    <!-- Modal for Detailed Analysis Results -->
+    <div class="modal-overlay hidden" id="analysis-modal">
+        <div class="glass-panel modal-content">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-square-poll-vertical"></i> Resultados Detalhados da Análise</h3>
+                <button class="btn-close-modal" id="btn-close-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" id="modal-details-body">
+                <!-- Dynamic Content Here -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" id="btn-modal-close-ok">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Script -->
+    <script src="script.js"></script>
+</body>
+</html>

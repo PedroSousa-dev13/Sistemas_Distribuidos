@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -212,6 +212,9 @@ namespace Servidor
                         Console.WriteLine($"  ├─ Q1:       {resultado.Q1:F2}");
                         Console.WriteLine($"  └─ Q3:       {resultado.Q3:F2}");
                         Log($"Analise estatistica concluida para {tipo}: media={resultado.Media:F2}, mediana={resultado.Mediana:F2}");
+
+                        string resultadoJson = System.Text.Json.JsonSerializer.Serialize(resultado);
+                        monitor.PersistirAnalise(sensorId ?? "todos", tipo, "estatisticas", resultadoJson);
                     }
                     else
                     {
@@ -269,6 +272,9 @@ namespace Servidor
                             Console.WriteLine($"  └─ Fim da analise de padroes");
 
                         Log($"Detecao de padroes concluida para {tipo}: {resultado.TotalAnomalias} anomalias, tendencia {resultado.Tendencia}");
+
+                        string resultadoJson = System.Text.Json.JsonSerializer.Serialize(resultado);
+                        monitor.PersistirAnalise(sensorId ?? "todos", tipo, "padroes", resultadoJson);
                     }
                     else
                     {
@@ -317,6 +323,9 @@ namespace Servidor
                         Console.WriteLine($"  ├─ Tendencia: {resultado.Tendencia}");
                         Console.WriteLine($"  └─ Risco: {resultado.Risco}");
                         Log($"Previsao concluida para {tipo}: proximo={resultado.ProximoValor:F2}, tendencia={resultado.Tendencia}, risco={resultado.Risco}");
+
+                        string resultadoJson = System.Text.Json.JsonSerializer.Serialize(resultado);
+                        monitor.PersistirAnalise(sensorId ?? "todos", tipo, "previsao", resultadoJson);
                     }
                     else
                     {
