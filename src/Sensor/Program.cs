@@ -1,4 +1,6 @@
 using System.Net;
+using System.IO;
+using System.Linq;
 using SharedProtocol;
 
 namespace Sensor;
@@ -38,6 +40,8 @@ class Program
         Console.WriteLine($"RabbitMQ Host: {rabbitMQHost}:{rabbitMQPort}");
         Console.WriteLine($"Sensor ID: {sensorId}");
         Console.WriteLine();
+
+        CarregarTiposDadosDoCSV(sensorId);
 
         using var sensor = new RabbitMQSensorClient(sensorId, rabbitMQHost, rabbitMQPort);
         sensor.OnLog += (s, msg) => Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {msg}");
@@ -172,6 +176,50 @@ class Program
         if (!sucesso)
         {
             Console.WriteLine("[AVISO] Falha ao enviar medição.");
+        }
+    }
+
+    private static void CarregarTiposDadosDoCSV(string sensorId)
+    {
+        string csvPath = "sensores.csv";
+        if (!File.Exists(csvPath))
+        {
+            csvPath = Path.Combine("..", "sensores.csv");
+            if (!File.Exists(csvPath))
+            {
+                csvPath = Path.Combine("..", "..", "sensores.csv");
+            }
+        }
+
+        if (File.Exists(csvPath))
+        {
+            try
+            {
+                foreach (var line in File.ReadAllLines(csvPath))
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.TrimStart().StartsWith("#")) continue;
+
+                    var parts = line.Split('|');
+                    if (parts.Length >= 4 && parts[0].Trim() == sensorId)
+                    {
+                        var tiposStr = parts[3].Trim('[', ']').Split(',', StringSplitOptions.RemoveEmptyEntries);
+                        var tipos = tiposStr.Select(s => s.Trim()).ToList();
+                        
+                        if (tipos.Any())
+                        {
+                            RabbitMQSensorClient.TiposDadosSuportados.Clear();
+                            RabbitMQSensorClient.TiposDadosSuportados.AddRange(tipos);
+                            Console.WriteLine($"[Config] Tipos de dados permitidos para '{sensorId}': {string.Join(", ", tipos)}");
+                            return;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[AVISO] Erro ao ler CSV de sensores: {ex.Message}. A usar todos por defeito.");
+            }
         }
     }
 }
