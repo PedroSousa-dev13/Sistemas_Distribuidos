@@ -1,0 +1,29 @@
+# ============================================================================
+# DOCKERFILE: PRE-PROCESSAMENTO SERVICE (RPC)
+# ============================================================================
+# Serviço de uniformização e validação de dados
+# Porto: 5001
+# Endpoints: /rpc/uniformizar, /rpc/validar
+# ============================================================================
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Labels
+LABEL maintainer="Team TP2"
+LABEL description="Data Standardization Service - Converts and validates sensor data"
+LABEL version="1.0"
+
+# Copy application
+COPY src/PreProcessamento/servico.py /app/servico.py
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 5001); conn.request('GET', '/'); print(conn.getresponse().status)" || exit 1
+
+# Expose port
+EXPOSE 5001
+
+# Run service
+CMD ["python", "servico.py"]

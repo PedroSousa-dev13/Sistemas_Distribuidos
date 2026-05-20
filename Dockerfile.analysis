@@ -1,0 +1,30 @@
+# ============================================================================
+# DOCKERFILE: ANALISE SERVICE (RPC)
+# ============================================================================
+# Serviço de análise estatística e previsão de dados
+# Porto: 6001
+# Endpoints: /rpc/estatisticas, /rpc/padroes, /rpc/previsao
+# ============================================================================
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Labels
+LABEL maintainer="Team TP2"
+LABEL description="Analysis & Prediction Service - Provides statistical analysis and forecasting"
+LABEL version="1.0"
+
+# Copy application
+COPY src/Analise/servico.py /app/servico.py
+COPY src/Analise/analise_estatistica.py /app/analise_estatistica.py
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 6001); conn.request('GET', '/'); print(conn.getresponse().status)" || exit 1
+
+# Expose port
+EXPOSE 6001
+
+# Run service
+CMD ["python", "servico.py"]
