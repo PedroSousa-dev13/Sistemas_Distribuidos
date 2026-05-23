@@ -174,6 +174,22 @@ namespace Servidor
 
                 foreach (var tipo in tipos)
                 {
+                    if (tipo == "imagem")
+                    {
+                        Console.WriteLine($"  A analisar {tipo}...");
+                        var medicoesImg = monitor.LerMedicoesComPayload(tipo);
+                        Console.WriteLine($"  ┌─ Tipo: {tipo} (dados nao numericos - {medicoesImg.Count} registos)");
+                        foreach (var m in medicoesImg.Take(5))
+                        {
+                            Console.WriteLine($"  ├─ [{m.timestamp}] {m.sensorId}: {m.payloadJson ?? "sem metadados"}");
+                        }
+                        if (medicoesImg.Count > 5)
+                            Console.WriteLine($"  └─ ... e mais {medicoesImg.Count - 5} registos");
+                        else
+                            Console.WriteLine($"  └─ Fim");
+                        continue;
+                    }
+
                     var medicoes = monitor.LerMedicoes(tipo);
                     if (medicoes.Count == 0)
                     {
@@ -238,6 +254,13 @@ namespace Servidor
 
                 foreach (var tipo in tipos)
                 {
+                    if (tipo == "imagem")
+                    {
+                        Console.WriteLine($"  A analisar padroes de {tipo}...");
+                        Console.WriteLine($"  └─ Dados nao numericos - sem detecao de padroes");
+                        continue;
+                    }
+
                     var medicoes = monitor.LerMedicoes(tipo);
                     if (medicoes.Count == 0) continue;
 
@@ -298,6 +321,13 @@ namespace Servidor
 
                 foreach (var tipo in tipos)
                 {
+                    if (tipo == "imagem")
+                    {
+                        Console.WriteLine($"  A calcular previsao para {tipo}...");
+                        Console.WriteLine($"  └─ Dados nao numericos - sem previsao");
+                        continue;
+                    }
+
                     var medicoes = monitor.LerMedicoes(tipo);
                     if (medicoes.Count == 0) continue;
 
@@ -464,8 +494,20 @@ namespace Servidor
             string timestamp = msg.Timestamp;
             string sensorId = msg.SensorId;
 
-            // Persistir dados no ficheiro
-            monitor.PersistirMedicao(tipoDado, timestamp, sensorId, valor);
+            string? payloadJson = null;
+            if (tipoDado == "imagem")
+            {
+                payloadJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    valor_original = valor,
+                    tipo_dado = tipoDado,
+                    sensor_id = sensorId,
+                    timestamp = timestamp,
+                    unidade = "metadata"
+                });
+            }
+
+            monitor.PersistirMedicao(tipoDado, timestamp, sensorId, valor, payloadJson);
 
             string gatewayId = msg.Payload.TryGetValue("gateway_id", out var gwObj)
                 ? gwObj?.ToString() ?? "desconhecido"
@@ -477,22 +519,13 @@ namespace Servidor
 
             lock (gatewayMessagesLock)
             {
+                if (gatewayMessages[num].Count >= 10)
+                    gatewayMessages[num].RemoveAt(0);
+
                 gatewayMessages[num].Add(linha);
             }
 
-            Console.Clear();
-            ExibirServidorPronto(portaOriginal);
-
-            lock (gatewayMessagesLock)
-            {
-                foreach (var kv in gatewayMessages)
-                {
-                    Console.WriteLine($"Gateway #{kv.Key} conectada!");
-                    foreach (var msgLinha in kv.Value)
-                        Console.WriteLine(msgLinha);
-                    Console.WriteLine();
-                }
-            }
+            Console.WriteLine(linha);
 
             var ack = new Mensagem(
                 TiposMensagem.DATA_ACK,

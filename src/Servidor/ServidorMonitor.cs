@@ -57,8 +57,12 @@ namespace Servidor
                         sensor_id TEXT NOT NULL,
                         tipo_dado TEXT NOT NULL,
                         valor REAL NOT NULL,
-                        timestamp TEXT NOT NULL
+                        timestamp TEXT NOT NULL,
+                        payload_json TEXT
                     );";
+
+                string addPayloadColumn = @"
+                    ALTER TABLE medicoes ADD COLUMN payload_json TEXT;";
 
                 string createAnalisesTable = @"
                     CREATE TABLE IF NOT EXISTS analises (
@@ -75,6 +79,16 @@ namespace Servidor
                     cmd.ExecuteNonQuery();
                 }
 
+                try
+                {
+                    using var addCmd = new SqliteCommand(addPayloadColumn, connection);
+                    addCmd.ExecuteNonQuery();
+                }
+                catch
+                {
+                    // Coluna ja existe - ignorar
+                }
+
                 using (var cmd = new SqliteCommand(createAnalisesTable, connection))
                 {
                     cmd.ExecuteNonQuery();
@@ -85,7 +99,7 @@ namespace Servidor
         /// <summary>
         /// Persiste uma medição na base de dados SQLite.
         /// </summary>
-        public bool PersistirMedicao(string tipoDado, string timestamp, string sensorId, string valor)
+        public bool PersistirMedicao(string tipoDado, string timestamp, string sensorId, string valor, string? payloadJson = null)
         {
             try
             {
@@ -94,11 +108,16 @@ namespace Servidor
                     return false;
                 }
 
-                // Tentar converter o valor para double (ex: temperatura, humidade)
-                // Se falhar (ex: imagem/vídeo simulado), atribui 0 e avança
                 double valorNumerico = 0;
-                double.TryParse(valor, System.Globalization.NumberStyles.Any, 
-                    System.Globalization.CultureInfo.InvariantCulture, out valorNumerico);
+                if (tipoDado == "imagem")
+                {
+                    valorNumerico = 0;
+                }
+                else
+                {
+                    double.TryParse(valor, System.Globalization.NumberStyles.Any,
+                        System.Globalization.CultureInfo.InvariantCulture, out valorNumerico);
+                }
 
                 lock (_dbLock)
                 {
@@ -106,14 +125,15 @@ namespace Servidor
                     connection.Open();
 
                     string insertSql = @"
-                        INSERT INTO medicoes (sensor_id, tipo_dado, valor, timestamp)
-                        VALUES ($sensorId, $tipoDado, $valor, $timestamp);";
+                        INSERT INTO medicoes (sensor_id, tipo_dado, valor, timestamp, payload_json)
+                        VALUES ($sensorId, $tipoDado, $valor, $timestamp, $payloadJson);";
 
                     using var cmd = new SqliteCommand(insertSql, connection);
                     cmd.Parameters.AddWithValue("$sensorId", sensorId);
                     cmd.Parameters.AddWithValue("$tipoDado", tipoDado);
                     cmd.Parameters.AddWithValue("$valor", valorNumerico);
                     cmd.Parameters.AddWithValue("$timestamp", timestamp);
+                    cmd.Parameters.AddWithValue("$payloadJson", (object?)payloadJson ?? DBNull.Value);
 
                     cmd.ExecuteNonQuery();
                 }
@@ -271,6 +291,52 @@ namespace Servidor
         /// Retorna o caminho do diretório de dados.
         /// </summary>
         public string DataDirectory => _dataDirectory;
+
+        /// <summary>
+        /// Lê medições incluindo o payload_json para tipos nao numericos (ex: imagem).
+        /// </summary>
+        public List<(string timestamp, string sensorId, string valor, string? payloadJson)> LerMedicoesComPayload(string tipoDado, int limite = 100)
+        {
+            var resultados = new List<(string, string, string, string?)>();
+
+            try
+            {
+                lock (_dbLock)
+                {
+                    using var connection = new SqliteConnection(_connectionString);
+                    connection.Open();
+
+                    string selectSql = @"
+                        SELECT timestamp, sensor_id, valor, payload_json
+                        FROM medicoes
+                        WHERE tipo_dado = $tipoDado
+                        ORDER BY id DESC
+                        LIMIT $limite;";
+
+                    using var cmd = new SqliteCommand(selectSql, connection);
+                    cmd.Parameters.AddWithValue("$tipoDado", tipoDado);
+                    cmd.Parameters.AddWithValue("$limite", limite);
+
+                    using var reader = cmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        string timestamp = reader.GetString(0);
+                        string sensorId = reader.GetString(1);
+                        double valor = reader.IsDBNull(2) ? 0 : reader.GetDouble(2);
+                        string? payloadJson = reader.IsDBNull(3) ? null : reader.GetString(3);
+                        resultados.Add((timestamp, sensorId, valor.ToString(System.Globalization.CultureInfo.InvariantCulture), payloadJson));
+                    }
+                }
+
+                resultados.Reverse();
+            }
+            catch (Exception ex)
+            {
+                Log($"Erro ao ler medições com payload do SQLite: {ex.Message}");
+            }
+
+            return resultados;
+        }
 
         /// <summary>
         /// Retorna a lista de tipos de dados suportados padrão.

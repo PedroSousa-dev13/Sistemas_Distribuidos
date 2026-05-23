@@ -129,7 +129,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
 
-            sql = "SELECT id, sensor_id, tipo_dado, valor, timestamp FROM medicoes WHERE 1=1"
+            sql = "SELECT id, sensor_id, tipo_dado, valor, timestamp, payload_json FROM medicoes WHERE 1=1"
             params = []
 
             if tipo_dado:
@@ -148,12 +148,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
             medicoes = []
             for row in rows:
+                payload_json_raw = row[5] if len(row) > 5 else None
+                payload = None
+                if payload_json_raw:
+                    try:
+                        payload = json.loads(payload_json_raw)
+                    except Exception:
+                        payload = payload_json_raw
+
                 medicoes.append({
                     "id": row[0],
                     "sensor_id": row[1],
                     "tipo_dado": row[2],
                     "valor": row[3],
-                    "timestamp": row[4]
+                    "timestamp": row[4],
+                    "payload": payload
                 })
 
             self._responder_json(medicoes)
@@ -200,6 +209,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if not sensor_id or not tipo_dado or not tipo_analise:
             self._responder_erro("Campos obrigatórios em falta: 'sensor_id', 'tipo_dado', 'tipo_analise'")
+            return
+
+        if tipo_dado == "imagem":
+            self._responder_erro("O tipo de dado 'imagem' não suporta análise estatística numérica. Selecione um tipo numérico (temperatura, humidade, etc.).")
             return
 
         if tipo_analise not in ["estatisticas", "padroes", "previsao"]:

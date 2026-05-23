@@ -20,6 +20,43 @@ services:
     networks:
       - sensor-network
 
+  pre-processamento:
+    build:
+      context: .
+      dockerfile: Dockerfile.preprocessing
+    container_name: pre-processamento-service
+    ports:
+      - "5001:5001"
+    networks:
+      - sensor-network
+    restart: unless-stopped
+
+  analise:
+    build:
+      context: .
+      dockerfile: Dockerfile.analysis
+    container_name: analise-service
+    ports:
+      - "6001:6001"
+    networks:
+      - sensor-network
+    restart: unless-stopped
+
+  interface:
+    build:
+      context: .
+      dockerfile: Dockerfile.interface
+    container_name: interface-dashboard
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./dados:/app/dados
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    depends_on:
+      - analise
+
 volumes:
   rabbitmq_data:
 

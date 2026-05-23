@@ -146,8 +146,9 @@ class Program
 
         if (tipoDado == "imagem")
         {
-            valor = $"[imagem_simulada_{Guid.NewGuid():N}]";
-            Console.WriteLine($"Simulação de imagem: {valor}");
+            var timestamp = DateTime.UtcNow.ToString("o");
+            valor = $"{{\"tipo\":\"captura\",\"formato\":\"simulado\",\"timestamp\":\"{timestamp}\",\"id\":\"{Guid.NewGuid():N}\",\"tamanho_bytes\":0,\"resolucao\":\"1920x1080\"}}";
+            Console.WriteLine($"Simulação de imagem: captura {valor}");
         }
         else
         {

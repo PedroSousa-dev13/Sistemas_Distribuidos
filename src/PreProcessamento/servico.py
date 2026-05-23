@@ -13,6 +13,7 @@ LIMITES = {
     "qualidade_ar": {"min": 0, "max": 500, "unidade": "AQI"},
     "ruido": {"min": 0, "max": 200, "unidade": "dB"},
     "luminosidade": {"min": 0, "max": 200000, "unidade": "lux"},
+    "imagem": {"min": 0, "max": 1, "unidade": "metadata"},
 }
 
 def uniformizar_temperatura(valor, formato_original):

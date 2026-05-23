@@ -18,6 +18,7 @@ LABEL version="1.0"
 # Copy application
 COPY src/Analise/servico.py /app/servico.py
 COPY src/Analise/analise_estatistica.py /app/analise_estatistica.py
+COPY src/Analise/detecao_padroes.py /app/detecao_padroes.py
 
 # Health check
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \

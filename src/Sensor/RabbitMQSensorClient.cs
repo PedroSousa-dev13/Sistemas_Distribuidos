@@ -14,10 +14,10 @@ public class RabbitMQSensorClient : IDisposable
     public string SensorId { get; }
     public string RabbitMQHost { get; }
     public int RabbitMQPort { get; }
+    public string Zona { get; set; } = "";
 
     private IConnection? _connection;
     private IChannel? _channel;
-    private readonly object _channelLock = new();
 
     private CancellationTokenSource? _cts;
     private Task? _heartbeatTask;
@@ -186,8 +186,8 @@ public class RabbitMQSensorClient : IDisposable
 
             if (string.IsNullOrEmpty(routingKey))
             {
-                // Routing por tipo de dado
-                routingKey = $"sensor.{SensorId}.{mensagem.Payload.GetValueOrDefault("tipo_dado", "unknown")}";
+                var tipoDado = mensagem.Payload.GetValueOrDefault("tipo_dado", "unknown")?.ToString() ?? "unknown";
+                routingKey = $"sensor.{SensorId}.{tipoDado}";
             }
 
             var json = JsonSerializer.Serialize(mensagem);
@@ -209,6 +209,23 @@ public class RabbitMQSensorClient : IDisposable
             );
 
             Log($"Mensagem publicada - Exchange: {exchangeName}, RoutingKey: {routingKey}");
+
+            if (!string.IsNullOrEmpty(Zona) && exchangeName == "sensor-measurements")
+            {
+                var tipoDado = mensagem.Payload.GetValueOrDefault("tipo_dado", "unknown")?.ToString() ?? "unknown";
+
+                var zoneRoutingKey = $"zona.{Zona}.{tipoDado}";
+
+                await _channel.BasicPublishAsync(
+                    exchange: exchangeName,
+                    routingKey: zoneRoutingKey,
+                    mandatory: false,
+                    basicProperties: properties,
+                    body: body
+                );
+
+                Log($"Mensagem tambem publicada com routing por zona: {zoneRoutingKey}");
+            }
         }
         catch (Exception ex)
         {

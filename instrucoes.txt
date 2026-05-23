@@ -1,0 +1,149 @@
+=== INSTRUCOES DE EXECUCAO - TP2 Sistemas Distribuidos ===
+
+============================================
+1. PRE-REQUISITOS
+============================================
+
+- .NET 8.0 SDK ou superior (para compilar C#)
+- Python 3.x (para servicos Python)
+- RabbitMQ (servico ou Docker: docker run -d --hostname rabbitmq --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management)
+
+============================================
+2. INICIAR RABBITMQ
+============================================
+
+docker run -d --hostname rabbitmq --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
+
+Ou executa o servico RabbitMQ localmente.
+
+============================================
+3. COMPILAR TODOS OS PROJETOS C#
+============================================
+
+Na pasta raiz:
+
+dotnet build
+
+============================================
+4. INICIAR COMPONENTES (ordem recomendada)
+============================================
+
+NOTA: Todos os comandos devem ser executados na pasta raiz do projeto.
+
+4.1. Servidor Central
+---------------------
+cd src\Servidor
+dotnet run
+
+O servidor TCP escuta na porta 6000.
+
+4.2. Gateway
+------------
+cd src\Gateway
+dotnet run <ip_servidor> <caminho_csv> <rabbitmq_host> <rabbitmq_porta>
+
+Exemplo:
+dotnet run 127.0.0.1 ..\..\sensores.csv 127.0.0.1 5672
+
+NOTA: O IP do servidor TCP deve ser o mesmo do passo 4.1.
+NOTA: Define-se ate 3 Gateways (ex: Gateway1, Gateway2, Gateway3).
+Cada gateway recebe dados de sensores de 2 zonas distintas.
+Para ver a zona de cada gateway, consulta a documentacao em docs/.
+
+4.3. Sensores
+-------------
+cd src\Sensor
+dotnet run <tipo_dado> <intervalo_segundos> <gateway_id> <ip_gateway> <porta_gateway>
+
+Exemplos:
+dotnet run temperatura 5 SensorTemperatura1 127.0.0.1 5000
+dotnet run humidade 7 SensorHumidade1 127.0.0.1 5001
+
+Define-se varios sensores de tipos diferentes. Cada sensor publica
+mensagens para o seu Gateway via RabbitMQ.
+
+4.4. Pre-Processamento
+-----------------------
+cd src\PreProcessamento
+python servico.py
+
+O servico RPC escuta na porta 5001 (HTTP JSON).
+
+4.5. Analise
+------------
+cd src\Analise
+python servico.py
+
+O servico RPC escuta na porta 6001 (HTTP JSON).
+
+4.6. Interface Web
+-------------------
+cd src\Interface
+python main.py
+
+O servidor HTTP escuta na porta 8000.
+
+Abrir no browser: http://localhost:8000
+
+============================================
+5. TESTAR ANALISE
+============================================
+
+A interface web permite:
+- Ver medicoes em tempo real
+- Filtrar por sensor e tipo de dado
+- Escolher intervalo de tempo (10s, 30s, 60s, 5min, 30min, 1h)
+- Visualizar graficos
+- Executar analise estatistica (media, mediana, desvio padrao, minimo, maximo)
+- Executar detecao de padroes (tendencia, sazonalidade, anomalias)
+- Executar previsao (proximo valor estimado)
+- Ver terminal de logs
+
+NOTA: Analise estatistica, padroes e previsao funcionam apenas para
+tipos de dado numericos (temperatura, humidade, ruido, pm10).
+O tipo "imagem" mostra metadados mas nao suporta analise numerica.
+
+============================================
+6. ARQUITETURA RESUMIDA
+============================================
+
+Sensor --> RabbitMQ --> Gateway --> Servidor TCP --> SQLite
+                                    |
+                           Pre-Processamento (RPC porta 5001)
+                                    |
+                              Analise (RPC porta 6001)
+                                    |
+                           Interface Web (porta 8000)
+
+Os Gateways recebem dados dos sensores por zona:
+- Gateway1: zonas A, B (porta 5000)
+- Gateway2: zonas C, D (porta 5001)
+- Gateway3: zonas E (porta 5002) ou conforme configurado
+
+Cada sensor publica com routing key: zona.<zona>.<tipo>
+O Gateway consome: zona.*.# (todas as sub-rotas da sua zona)
+
+============================================
+7. DOCKER (ALTERNATIVA)
+============================================
+
+Para executar tudo em contentores Docker:
+
+docker-compose up --build
+
+A interface web fica em http://localhost:8000
+
+NOTA: Alguns servicos Python usam apenas a biblioteca padrao.
+Nao necessitam de pip install.
+
+============================================
+8. TESTES
+============================================
+
+Testes Python:
+cd tests
+python -m pytest test_pre_processamento.py -v
+python -m pytest test_analise_estatistica.py -v
+
+Testes C#:
+dotnet test

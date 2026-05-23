@@ -3,6 +3,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 from analise_estatistica import calcular_estatisticas, detetar_anomalias, prever_proximo
+from detecao_padroes import analisar_padroes
 
 PORT = 6001
 
@@ -46,6 +47,10 @@ class RPCHandler(BaseHTTPRequestHandler):
         tipo_dado = dados.get("tipo_dado", "")
         valores = dados.get("valores", [])
 
+        if tipo_dado == "imagem":
+            self._responder({"sucesso": False, "erro": "Tipo de dado 'imagem' nao suportado para analise numerica"})
+            return
+
         if not valores:
             self._responder({"sucesso": False, "erro": "Lista de valores vazia"})
             return
@@ -76,6 +81,10 @@ class RPCHandler(BaseHTTPRequestHandler):
         tipo_dado = dados.get("tipo_dado", "")
         valores = dados.get("valores", [])
 
+        if tipo_dado == "imagem":
+            self._responder({"sucesso": False, "erro": "Tipo de dado 'imagem' nao suportado para detecao de padroes"})
+            return
+
         if not valores:
             self._responder({"sucesso": False, "erro": "Lista de valores vazia"})
             return
@@ -87,7 +96,10 @@ class RPCHandler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 continue
 
-        anomalias = detetar_anomalias(valores_num)
+        resultado = analisar_padroes(valores_num)
+        if resultado is None:
+            self._responder({"sucesso": False, "erro": "Erro ao analisar padroes"})
+            return
 
         _, tendencia, _, _ = _analisar_tendencia(valores_num)
 
@@ -95,8 +107,8 @@ class RPCHandler(BaseHTTPRequestHandler):
             "sucesso": True,
             "sensor_id": sensor_id,
             "tipo_dado": tipo_dado,
-            "anomalias": anomalias,
-            "total_anomalias": len(anomalias),
+            "anomalias": resultado["anomalias"],
+            "total_anomalias": resultado["total_anomalias"],
             "tendencia": tendencia,
         })
 
@@ -104,6 +116,10 @@ class RPCHandler(BaseHTTPRequestHandler):
         sensor_id = dados.get("sensor_id", "")
         tipo_dado = dados.get("tipo_dado", "")
         valores = dados.get("valores", [])
+
+        if tipo_dado == "imagem":
+            self._responder({"sucesso": False, "erro": "Tipo de dado 'imagem' nao suportado para previsao"})
+            return
 
         if not valores:
             self._responder({"sucesso": False, "erro": "Lista de valores vazia"})

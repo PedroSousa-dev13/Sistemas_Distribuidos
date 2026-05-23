@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+LABEL maintainer="Team TP2"
+LABEL description="Web Dashboard Interface - IoT Analytics Visualization"
+LABEL version="1.0"
+
+COPY src/Interface/main.py /app/main.py
+COPY src/Interface/static/ /app/static/
+
+RUN mkdir -p /app/dados
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+    CMD python -c "import http.client; conn = http.client.HTTPConnection('localhost', 8000); conn.request('GET', '/'); print(conn.getresponse().status)" || exit 1
+
+EXPOSE 8000
+
+CMD ["python", "main.py"]

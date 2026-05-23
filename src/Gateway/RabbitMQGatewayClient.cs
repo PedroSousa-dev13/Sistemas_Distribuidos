@@ -7,10 +7,6 @@ using System.Collections.Concurrent;
 
 namespace Gateway;
 
-/// <summary>
-/// Cliente RabbitMQ para subscrever e processar medições de sensores.
-/// Substitui a conexão TCP direta com sensores.
-/// </summary>
 public class RabbitMQGatewayClient : IDisposable
 {
     public string GatewayId { get; }
@@ -19,12 +15,20 @@ public class RabbitMQGatewayClient : IDisposable
 
     private IConnection? _connection;
     private IChannel? _channel;
-    private readonly object _channelLock = new();
 
     private Dictionary<string, SensorInfo> _sensors;
-    private ConcurrentQueue<Mensagem> _messageQueue;
+    private ConcurrentQueue<QueuedMessage> _messageQueue;
     private CancellationTokenSource? _cts;
     private Task? _consumerTask;
+
+    private const int MaxDeliveryRetries = 3;
+
+    private class QueuedMessage
+    {
+        public Mensagem Message { get; set; } = null!;
+        public ulong DeliveryTag { get; set; }
+        public string Queue { get; set; } = "";
+    }
 
     public event EventHandler<Mensagem>? OnMensagemRecebida;
     public event EventHandler<string>? OnLog;
@@ -39,7 +43,7 @@ public class RabbitMQGatewayClient : IDisposable
         RabbitMQHost = rabbitMQHost;
         RabbitMQPort = rabbitMQPort;
         _sensors = sensors;
-        _messageQueue = new ConcurrentQueue<Mensagem>();
+        _messageQueue = new ConcurrentQueue<QueuedMessage>();
     }
 
     public async Task<bool> IniciarAsync()
@@ -61,11 +65,6 @@ public class RabbitMQGatewayClient : IDisposable
             Log($"Erro ao iniciar: {ex.Message}");
             return false;
         }
-    }
-
-    public void EnqueueMensagem(Mensagem mensagem)
-    {
-        _messageQueue.Enqueue(mensagem);
     }
 
     public async Task PararAsync()
@@ -118,7 +117,6 @@ public class RabbitMQGatewayClient : IDisposable
             if (_channel == null)
                 throw new InvalidOperationException("Canal não inicializado");
 
-            // ─── Exchange para medições ───
             await _channel.ExchangeDeclareAsync(
                 "sensor-measurements",
                 ExchangeType.Topic,
@@ -126,7 +124,6 @@ public class RabbitMQGatewayClient : IDisposable
                 autoDelete: false
             );
 
-            // ─── Exchange para controle ───
             await _channel.ExchangeDeclareAsync(
                 "sensor-control",
                 ExchangeType.Direct,
@@ -134,37 +131,45 @@ public class RabbitMQGatewayClient : IDisposable
                 autoDelete: false
             );
 
-            // ─── Fila para medições gerais ───
+            var args = new Dictionary<string, object?>
+            {
+                { "x-delivery-limit", MaxDeliveryRetries }
+            };
+
             await _channel.QueueDeclareAsync(
                 queue: $"gateway-measurements-{GatewayId}",
                 durable: true,
                 exclusive: false,
                 autoDelete: false,
-                arguments: null
+                arguments: args
             );
 
-            // ─── Fila para eventos de controle ───
             await _channel.QueueDeclareAsync(
                 queue: $"gateway-control-{GatewayId}",
                 durable: true,
                 exclusive: false,
                 autoDelete: false,
-                arguments: null
+                arguments: args
             );
 
-            // ─── Bindings para medições (subscribe a todos os sensores) ───
             await _channel.QueueBindAsync(
                 queue: $"gateway-measurements-{GatewayId}",
                 exchange: "sensor-measurements",
-                routingKey: "sensor.*.#",  // Qualquer sensor, qualquer tipo de dado
+                routingKey: "sensor.*.#",
                 arguments: null
             );
 
-            // ─── Bindings para controle ───
+            await _channel.QueueBindAsync(
+                queue: $"gateway-measurements-{GatewayId}",
+                exchange: "sensor-measurements",
+                routingKey: "zona.*.#",
+                arguments: null
+            );
+
             await _channel.QueueBindAsync(
                 queue: $"gateway-control-{GatewayId}",
                 exchange: "sensor-control",
-                routingKey: "#",  // Qualquer evento de controle
+                routingKey: "#",
                 arguments: null
             );
 
@@ -183,9 +188,8 @@ public class RabbitMQGatewayClient : IDisposable
             if (_channel == null)
                 throw new InvalidOperationException("Canal não inicializado");
 
-            // Consumidor para medições
             var consumer1 = new AsyncEventingBasicConsumer(_channel);
-            consumer1.ReceivedAsync += async (model, ea) => await ProcessarMensagemAsync(ea);
+            consumer1.ReceivedAsync += async (model, ea) => await ReceberMensagemAsync(ea);
 
             await _channel.BasicConsumeAsync(
                 queue: $"gateway-measurements-{GatewayId}",
@@ -194,9 +198,8 @@ public class RabbitMQGatewayClient : IDisposable
                 consumer: consumer1
             );
 
-            // Consumidor para controle
             var consumer2 = new AsyncEventingBasicConsumer(_channel);
-            consumer2.ReceivedAsync += async (model, ea) => await ProcessarMensagemAsync(ea);
+            consumer2.ReceivedAsync += async (model, ea) => await ReceberMensagemAsync(ea);
 
             await _channel.BasicConsumeAsync(
                 queue: $"gateway-control-{GatewayId}",
@@ -213,7 +216,7 @@ public class RabbitMQGatewayClient : IDisposable
         }
     }
 
-    private async Task ProcessarMensagemAsync(BasicDeliverEventArgs ea)
+    private async Task ReceberMensagemAsync(BasicDeliverEventArgs ea)
     {
         try
         {
@@ -222,20 +225,51 @@ public class RabbitMQGatewayClient : IDisposable
 
             if (mensagem != null)
             {
+                var fila = ea.ConsumerTag.Contains("control") ? "control" : "measurements";
+
+                _messageQueue.Enqueue(new QueuedMessage
+                {
+                    Message = mensagem,
+                    DeliveryTag = ea.DeliveryTag,
+                    Queue = fila
+                });
+
                 Log($"Mensagem recebida - Tipo: {mensagem.Tipo}, Sensor: {mensagem.SensorId}, " +
                     $"RoutingKey: {ea.RoutingKey}");
-
-                EnqueueMensagem(mensagem);
-
-                // ACK após enqueue bem-sucedido
-                await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false);
+            }
+            else
+            {
+                await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
             }
         }
         catch (Exception ex)
         {
-            Log($"Erro ao processar mensagem: {ex.Message}");
-            // NACK para requeue
-            await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: true);
+            Log($"Erro ao receber mensagem: {ex.Message}");
+            await _channel!.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
+        }
+    }
+
+    public async Task PublicarMensagemControleAsync(string routingKey, Mensagem mensagem)
+    {
+        try
+        {
+            if (_channel == null) return;
+
+            var json = JsonSerializer.Serialize(mensagem);
+            var body = Encoding.UTF8.GetBytes(json);
+
+            await _channel.BasicPublishAsync(
+                exchange: "sensor-control",
+                routingKey: routingKey,
+                mandatory: false,
+                body: body
+            );
+
+            Log($"Mensagem de controle publicada: {mensagem.Tipo} ({routingKey})");
+        }
+        catch (Exception ex)
+        {
+            Log($"Erro ao publicar mensagem de controle: {ex.Message}");
         }
     }
 
@@ -245,9 +279,25 @@ public class RabbitMQGatewayClient : IDisposable
         {
             try
             {
-                if (_messageQueue.TryDequeue(out var mensagem))
+                if (_messageQueue.TryDequeue(out var queued))
                 {
-                    OnMensagemRecebida?.Invoke(this, mensagem);
+                    try
+                    {
+                        OnMensagemRecebida?.Invoke(this, queued.Message);
+
+                        await _channel!.BasicAckAsync(queued.DeliveryTag, multiple: false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Erro ao processar mensagem (delivery #{queued.DeliveryTag}): {ex.Message}");
+
+                        try
+                        {
+                            await _channel!.BasicNackAsync(queued.DeliveryTag, multiple: false, requeue: false);
+                        }
+                        catch { }
+                    }
+
                     await Task.Delay(10, cancellationToken);
                 }
                 else

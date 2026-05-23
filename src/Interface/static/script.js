@@ -196,30 +196,48 @@ document.addEventListener('DOMContentLoaded', () => {
             // Order chronologically (original query is desc, so we reverse it)
             data.reverse();
             
-            // Extract values and labels
-            const valores = data.map(m => parseFloat(m.valor));
+            const isImagem = activeTipo === 'imagem';
+
+            const valores = isImagem
+                ? data.map(m => 0)
+                : data.map(m => parseFloat(m.valor));
             const timestamps = data.map(m => {
                 const dt = new Date(m.timestamp);
                 return dt.toLocaleTimeString('pt-PT');
             });
             
-            // Check for new real-time lines to dump in the terminal
             data.forEach(m => {
                 if (m.id > lastLoadedId) {
-                    logToTerminal(`[DADO] Sensor: ${m.sensor_id} | Tipo: ${m.tipo_dado} | Valor: ${parseFloat(m.valor).toFixed(2)} | Hora: ${new Date(m.timestamp).toLocaleTimeString()}`, 'data');
+                    if (m.tipo_dado === 'imagem') {
+                        const meta = m.payload ? JSON.stringify(m.payload) : m.valor;
+                        logToTerminal(`[DADO] Sensor: ${m.sensor_id} | Tipo: ${m.tipo_dado} | Metadados: ${meta} | Hora: ${new Date(m.timestamp).toLocaleTimeString()}`, 'data');
+                    } else {
+                        logToTerminal(`[DADO] Sensor: ${m.sensor_id} | Tipo: ${m.tipo_dado} | Valor: ${parseFloat(m.valor).toFixed(2)} | Hora: ${new Date(m.timestamp).toLocaleTimeString()}`, 'data');
+                    }
                     if (m.id > lastLoadedId) {
                         lastLoadedId = m.id;
                     }
                 }
             });
             
-            // Update KPI Stats cards
-            const currentVal = valores[valores.length - 1];
-            kpiCurrentVal.textContent = currentVal.toFixed(2);
-            
-            const soma = valores.reduce((acc, curr) => acc + curr, 0);
-            const media = soma / valores.length;
-            kpiAverageVal.textContent = media.toFixed(2);
+            if (isImagem) {
+                const ultimo = data[data.length - 1];
+                const meta = ultimo.payload ? JSON.stringify(ultimo.payload) : ultimo.valor;
+                kpiCurrentVal.textContent = '📷 Captura';
+                kpiCurrentVal.style.fontSize = '14px';
+                kpiAverageVal.textContent = 'N/A';
+                kpiTrendVal.textContent = 'N/A';
+                kpiRiskVal.textContent = 'N/A';
+                chartSubTitle.textContent = `Visualizando metadados de '${activeTipo}' | ${activeSensor === 'todos' ? 'Todos os Sensores' : activeSensor}`;
+            } else {
+                const currentVal = valores[valores.length - 1];
+                kpiCurrentVal.textContent = currentVal.toFixed(2);
+                kpiCurrentVal.style.fontSize = '';
+                
+                const soma = valores.reduce((acc, curr) => acc + curr, 0);
+                const media = soma / valores.length;
+                kpiAverageVal.textContent = media.toFixed(2);
+            }
             
             dataCountBadge.textContent = `${valores.length} pontos`;
             
@@ -542,7 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span class="anomalia-desc">${anom.descricao || 'Z-Score acima do limite estatístico'}</span>
                             </div>
                             <span class="anomalia-val-badge">
-                                Valor: ${anom.valor.toFixed(2)} (z=${anom.zscore.toFixed(2)})
+                                Valor: ${anom.valor.toFixed(2)} (z=${anom.z_score.toFixed(2)})
                             </span>
                         </div>
                     `;
@@ -566,7 +584,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 
-                <h4 style="margin-top: 12px;"><i class="fa-solid fa-clock-rotate-left"></i> Próximos 5 Valores Projetados</h4>
+                <h4 style="margin-top: 12px;"><i class="fa-solid fa-clock-rotate-left"></i> Próximos 3 Valores Projetados</h4>
                 <div class="detail-grid" style="grid-template-columns: repeat(5, 1fr); padding: 12px; text-align: center;">
             `;
             

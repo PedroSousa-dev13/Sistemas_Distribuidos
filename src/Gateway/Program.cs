@@ -127,6 +127,11 @@ namespace Gateway
                     sensors[sensorId].LastSync = DateTime.UtcNow;
                     EscreverCSV();
                     Log($"✓ Sensor {sensorId} registado com sucesso");
+
+                    _ = rabbitMQClient.PublicarMensagemControleAsync(
+                        "register_ok",
+                        Mensagem.CriarRegisterOk(sensorId)
+                    );
                 }
                 else
                 {
@@ -151,35 +156,50 @@ namespace Gateway
             if (!string.IsNullOrEmpty(tipoDado) && valorObj != null)
             {
                 double valorOriginal = 0;
-                try { valorOriginal = Convert.ToDouble(valorObj); }
-                catch { valorOriginal = 0; }
-
-                var rpcResult = preProcessamentoClient
-                    .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
-                    .GetAwaiter().GetResult();
-
-                if (rpcResult?.Sucesso == true)
+                if (tipoDado == "imagem")
                 {
-                    msg.Payload["valor"] = rpcResult.ValorUniformizado;
-                    msg.Payload["unidade"] = rpcResult.Unidade;
-                    Log($"[RPC] Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
-
-                    var validacao = preProcessamentoClient
-                        .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
-                        .GetAwaiter().GetResult();
-
-                    if (validacao?.Valido == false)
-                    {
-                        string erros = string.Join("; ", validacao.Erros);
-                        Log($"[RPC] Validar: {sensorId}/{tipoDado} - REJEITADO: {erros}");
-                        return;
-                    }
-
-                    Log($"[RPC] Validar: {sensorId}/{tipoDado} - VALIDO");
+                    Log($"[IMAGEM] Dado de imagem recebido: {valorObj} - a preservar valor original");
                 }
                 else
                 {
-                    Log($"[AVISO] RPC Uniformizar falhou: {rpcResult?.Erro ?? "servico indisponivel"} - a usar valor original");
+                    try { valorOriginal = Convert.ToDouble(valorObj); }
+                    catch { valorOriginal = 0; }
+                }
+
+                if (tipoDado != "imagem")
+                {
+                    var rpcResult = preProcessamentoClient
+                        .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
+                        .GetAwaiter().GetResult();
+
+                    if (rpcResult?.Sucesso == true)
+                    {
+                        msg.Payload["valor"] = rpcResult.ValorUniformizado;
+                        msg.Payload["unidade"] = rpcResult.Unidade;
+                        Log($"[RPC] Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
+
+                        var validacao = preProcessamentoClient
+                            .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
+                            .GetAwaiter().GetResult();
+
+                        if (validacao?.Valido == false)
+                        {
+                            string erros = string.Join("; ", validacao.Erros);
+                            Log($"[RPC] Validar: {sensorId}/{tipoDado} - REJEITADO: {erros}");
+                            return;
+                        }
+
+                        Log($"[RPC] Validar: {sensorId}/{tipoDado} - VALIDO");
+                    }
+                    else
+                    {
+                        Log($"[AVISO] RPC Uniformizar falhou: {rpcResult?.Erro ?? "servico indisponivel"} - a usar valor original");
+                    }
+                }
+                else
+                {
+                    msg.Payload["unidade"] = "metadata";
+                    Log($"[IMAGEM] Dado de imagem preservado: {valorObj}");
                 }
             }
 
