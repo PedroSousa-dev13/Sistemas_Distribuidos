@@ -1,5 +1,6 @@
 using SharedProtocol;
 using RabbitMQ.Client;
+using System;
 using System.Text;
 using System.Text.Json;
 
@@ -110,8 +111,8 @@ public class RabbitMQSensorClient : IDisposable
             {
                 HostName = RabbitMQHost,
                 Port = RabbitMQPort,
-                UserName = "guest",
-                Password = "guest",
+                UserName = Environment.GetEnvironmentVariable("RABBITMQ_USER") ?? "guest",
+                Password = Environment.GetEnvironmentVariable("RABBITMQ_PASS") ?? "guest",
                 AutomaticRecoveryEnabled = true,
                 RequestedHeartbeat = TimeSpan.FromSeconds(30)
             };

@@ -1,6 +1,7 @@
 using SharedProtocol;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
+using System;
 using System.Text;
 using System.Text.Json;
 using System.Collections.Concurrent;
@@ -93,8 +94,8 @@ public class RabbitMQGatewayClient : IDisposable
             {
                 HostName = RabbitMQHost,
                 Port = RabbitMQPort,
-                UserName = "guest",
-                Password = "guest",
+                UserName = Environment.GetEnvironmentVariable("RABBITMQ_USER") ?? "guest",
+                Password = Environment.GetEnvironmentVariable("RABBITMQ_PASS") ?? "guest",
                 AutomaticRecoveryEnabled = true,
                 RequestedHeartbeat = TimeSpan.FromSeconds(30)
             };
@@ -221,7 +222,15 @@ public class RabbitMQGatewayClient : IDisposable
         try
         {
             var json = Encoding.UTF8.GetString(ea.Body.ToArray());
-            var mensagem = JsonSerializer.Deserialize<Mensagem>(json);
+            Mensagem? mensagem;
+            try
+            {
+                mensagem = MensagemSerializer.Deserializar(json);
+            }
+            catch
+            {
+                mensagem = null;
+            }
 
             if (mensagem != null)
             {

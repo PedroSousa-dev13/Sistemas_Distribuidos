@@ -46,7 +46,10 @@ def detetar_anomalias(valores, limiar=2.0):
 
     media = sum(valores) / n
     variancia = sum((x - media) ** 2 for x in valores) / n
-    desvio = math.sqrt(variancia) if variancia > 0 else 1.0
+    if variancia == 0:
+        return []
+
+    desvio = math.sqrt(variancia)
 
     anomalias = []
     for i, v in enumerate(valores):
