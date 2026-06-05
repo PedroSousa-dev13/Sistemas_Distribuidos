@@ -33,16 +33,15 @@ dotnet build src\DataStreamClient\DataStreamClient.csproj
 4. INICIAR COMPONENTES (ordem recomendada)
 ============================================
 
-NOTA: Todos os comandos devem ser executados na pasta raiz do projeto.
+NOTA: Todos os comandos devem ser executados na **pasta raiz do projeto** (`C:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos`).
 
 4.1. Servidor Central
 ---------------------
-cd src\Servidor
-dotnet run [porto]
+dotnet run --project src\Servidor\Servidor.csproj [porto]
 
 Exemplos:
-dotnet run
-dotnet run 7000
+dotnet run --project src\Servidor\Servidor.csproj
+dotnet run --project src\Servidor\Servidor.csproj 7000
 
 O servidor TCP escuta na porta 7000 por defeito.
 Pode definir-se via env var: LISTEN_PORT=7000
@@ -50,11 +49,10 @@ Porta anterior (6000) foi alterada.
 
 4.2. Gateway
 ------------
-cd src\Gateway
-dotnet run <server_endpoint> [caminho_csv] [rabbitmq_host] [rabbitmq_porta]
+dotnet run --project src\Gateway\Gateway.csproj -- <server_endpoint> [caminho_csv] [rabbitmq_host] [rabbitmq_porta]
 
 Exemplo:
-dotnet run 127.0.0.1:7000 dados/gateway.csv 127.0.0.1 5672
+dotnet run --project src\Gateway\Gateway.csproj -- 127.0.0.1:7000 dados/gateway.csv localhost 5672
 
 Valores por defeito via env vars:
 - SERVER_ENDPOINT (ex: servidor:7000)
@@ -67,15 +65,32 @@ via RPC (HTTP) e encaminha os dados tratados ao Servidor via TCP.
 
 4.3. Sensores
 -------------
-cd src\Sensor
-dotnet run <sensor_id> [rabbitmq_host] [rabbitmq_porta]
+dotnet run --project src\Sensor\Sensor.csproj -- <sensor_id> [rabbitmq_host] [rabbitmq_porta]
 
 Exemplos:
-dotnet run sensor-01
-dotnet run sensor-01 localhost 5672
+dotnet run --project src\Sensor\Sensor.csproj -- sensor-01
+dotnet run --project src\Sensor\Sensor.csproj -- sensor-01 localhost 5672
 
 O sensor publica medicoes diretamente no RabbitMQ (exchange topic).
 Nao usa TCP direto para o Gateway.
+
+### 1 Sensor fisico (C# interativo)
+
+```powershell
+dotnet run --project src\Sensor\Sensor.csproj -- sensor-01 localhost 5672
+```
+
+Menu interativo: escolher tipo de medicao (1-6) e inserir valor.
+
+### 6 Sensores virtuais (Python automatico)
+
+```powershell
+python scripts\simular_sensores.py
+```
+
+Publica 1 leitura a cada 5s por sensor (temperatura, humidade, ruido,
+qualidade_ar, luz, CO2, pressao, vento, pm10, pm25). Sem interacao.
+Ideal para testar fluxo continuo sem precisar de 6 terminais.
 
 4.4. Pre-Processamento
 -----------------------

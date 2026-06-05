@@ -146,7 +146,7 @@ public class RabbitMQSensorClient : IDisposable
             // Exchange para mensagens de controle (registro, heartbeat)
             await _channel.ExchangeDeclareAsync(
                 "sensor-control",
-                ExchangeType.Direct,
+                ExchangeType.Topic,
                 durable: true,
                 autoDelete: false
             );

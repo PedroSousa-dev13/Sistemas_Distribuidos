@@ -1,0 +1,22 @@
+## Sensores
+
+> NOTA: Todos os comandos assumem que está na **raiz do projeto** (`C:\Users\pedro\Documents\GitHub\Sistemas_Distribuidos`).
+> Se estiver dentro de `src\Sensor\`, use `dotnet run -- sensor-01 localhost 5672` (sem `--project`).
+
+### 1 Sensor fisico (C# interativo)
+
+```powershell
+dotnet run --project src\Sensor\Sensor.csproj -- sensor-01 localhost 5672
+```
+
+Menu interativo: escolher tipo de medicao (1-6) e inserir valor.
+
+### 6 Sensores virtuais (Python automatico)
+
+```powershell
+python scripts\simular_sensores.py
+```
+
+Publica 1 leitura a cada 5s por sensor (temperatura, humidade, ruido,
+qualidade_ar, luz, CO2, pressao, vento, pm10, pm25). Sem interacao.
+Ideal para testar fluxo continuo sem precisar de 6 terminais.
