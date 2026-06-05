@@ -76,12 +76,14 @@ Erros padronizados: `SENSOR_NOT_FOUND`, `SENSOR_INACTIVE`, `SERVER_UNAVAILABLE`,
 O sensor é um cliente interativo de consola que:
 1. Lê do CSV `sensores.csv` os tipos de dados permitidos para o seu ID
 2. Conecta-se ao RabbitMQ usando `RabbitMQ.Client` 7.2.1
-3. Declara as exchanges (`sensor-measurements` topic, `sensor-control` direct)
+3. Declara as exchanges (`sensor-measurements` topic, `sensor-control` topic)
 4. Publica mensagem REGISTER com os tipos suportados
 5. Entra num loop de menu onde o utilizador escolhe o tipo de dado a enviar
 6. Envia heartbeat a cada 10s para a exchange `sensor-control` com routing key `heartbeat`
 
 **Publicação AMQP:** usa `BasicPublishAsync` com `DeliveryMode.Persistent`. Para cada medição, publica na topic exchange `sensor-measurements` com routing key `sensor.{SensorId}.{tipoDado}`. Se o sensor tiver zona definida, publica também em `zona.{Zona}.{tipoDado}`.
+
+**Exchange `sensor-control`:** declarada como `Topic` (não `Direct`). O Gateway, o Sensor C# e o script de simulação Python usam `Topic`, necessário para que o binding com wildcard `#` funcione corretamente. Qualquer componente que declare como `Direct` causa `precondition_failed` no RabbitMQ.
 
 ### 3.2 DataStreamClient (C#)
 
@@ -110,9 +112,9 @@ O Gateway declara filas exclusivas:
 As mensagens são recebidas por `AsyncEventingBasicConsumer` e colocadas numa `ConcurrentQueue`. Uma task `ProcessarFilaAsync` processa as mensagens em série (delay de 10ms entre mensagens) e invoca `OnMensagemRecebida`.
 
 **Processamento por tipo:**
-- **REGISTER**: verifica se o sensor existe no CSV; marca como ativo; publica REGISTER_OK ou ignora
-- **DATA**: normaliza o valor via RPC `/rpc/uniformizar`; valida via RPC `/rpc/validar`; se rejeitado, descarta; caso contrário, encaminha ao Servidor via TCP
-- **HEARTBEAT**: atualiza `LastSync` do sensor no CSV
+- **REGISTER**: verifica se o sensor existe no CSV. Se existir, marca como ativo e publica `REGISTER_OK`. Se **não existir**, adiciona ao CSV como `"pendente"` (dados ignorados até que o estado seja alterado manualmente para `"ativo"`).
+- **DATA**: verifica o estado do sensor no CSV. Se não for `"ativo"`, os dados são ignorados. Caso contrário, normaliza o valor via RPC `/rpc/uniformizar`; valida via RPC `/rpc/validar`; se rejeitado, descarta; caso contrário, encaminha ao Servidor via TCP.
+- **HEARTBEAT**: atualiza `LastSync` do sensor no CSV.
 
 #### 3.3.3 Comunicação TCP com Servidor
 
@@ -203,6 +205,11 @@ Servidor HTTP com três endpoints:
 
 Dashboard web com API REST (`/api/sensores`, `/api/tipos`, `/api/medicoes`, `/api/analises`) que lê diretamente do SQLite e encaminha pedidos de análise ao serviço `Analise`. Serve ficheiros estáticos (HTML/CSS/JS) de `src/Interface/static/`.
 
+**Variáveis de ambiente:**
+- `DB_PATH`: caminho absoluto para o ficheiro SQLite. Em Docker: `/app/dados/sistemas_distribuidos.db`. Por omissão: `../../dados/sistemas_distribuidos.db` relativo a `src/Interface/`.
+- `ANALISE_RPC_URL`: URL base do serviço de Análise. Em Docker: `http://analise:6001`. Por omissão: `http://127.0.0.1:6001`.
+- `INTERFACE_PORT`: porta do servidor HTTP (default 8000).
+
 ---
 
 ## 4. Resiliência e Tolerância a Falhas
@@ -223,8 +230,8 @@ Dashboard web com API REST (`/api/sensores`, `/api/tipos`, `/api/medicoes`, `/ap
 - Na última tentativa: retorna null (não propaga exceção)
 
 ### 4.4 Graceful Shutdown (Python)
-- Todos os serviços Python registam handlers `SIGTERM` e `SIGINT`
-- Chamam `server.server_close()` antes de terminar
+- Todos os serviços Python registam handler `SIGTERM` para `server.server_close()`
+- O `SIGINT` (Ctrl+C) é tratado exclusivamente por `except KeyboardInterrupt`, que chama `server.server_close()` — o uso simultâneo de `signal.signal(SIGINT)` causava `OSError 10038` no Windows (socket já fechado durante `serve_forever()`)
 
 ### 4.5 Payload Limit
 - RPCs Python: rejeitam payloads >10 MB (HTTP 413)
@@ -263,10 +270,27 @@ docker-compose up --build -d
 | pre-processamento | Dockerfile.preprocessing | — |
 | analise | Dockerfile.analysis | — |
 | interface | Dockerfile.interface | analise |
-| gateway | Dockerfile.gateway | rabbitmq, servidor, pre-processamento |
+| gateway | Dockerfile.gateway | rabbitmq (healthy), servidor, pre-processamento |
 | servidor | Dockerfile.servidor | — |
 
-Todos os serviços Python expõem `GET /health`. Gateway e Servidor aceitam configuração via variáveis de ambiente (`SERVER_ENDPOINT`, `CSV_PATH`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `LISTEN_PORT`, `PRE_PROCESSAMENTO_HOST`, `ANALISE_HOST`).
+**Volumes:** o diretório `./dados/` é montado em `/app/dados/` nos serviços `gateway`, `servidor` e `interface` — partilha o CSV de sensores, a base de dados SQLite e os logs.
+
+**Healthchecks:**
+- RabbitMQ: `rabbitmq-diagnostics -q ping`
+- Serviços Python: `urllib.request.urlopen('http://127.0.0.1:<port>/health')`
+- Gateway e Servidor: `grep -q <nome> /proc/1/cmdline` (alternativa a `pgrep`, indisponível na imagem `dotnet/runtime:9.0`)
+
+**Variáveis de ambiente por serviço:**
+
+| Serviço | Variáveis |
+|---------|-----------|
+| gateway | `SERVER_ENDPOINT`, `CSV_PATH`, `RABBITMQ_HOST`, `RABBITMQ_PORT`, `PRE_PROCESSAMENTO_HOST` |
+| servidor | `LISTEN_PORT`, `ANALISE_HOST` |
+| interface | `DB_PATH`, `ANALISE_RPC_URL`, `INTERFACE_PORT` |
+| pre-processamento | `PRE_PROCESSAMENTO_PORT` |
+| analise | `ANALISE_PORT` |
+
+Em Docker, a Interface usa `DB_PATH=/app/dados/sistemas_distribuidos.db` e `ANALISE_RPC_URL=http://analise:6001` para localizar a base de dados e o serviço de análise pelos nomes dos contentores.
 
 ---
 
@@ -299,3 +323,6 @@ Todos os serviços Python expõem `GET /health`. Gateway e Servidor aceitam conf
 | SQLite em vez de ficheiros de texto | Ficheiros .txt | Consultas estruturadas, concorrência, escalabilidade |
 | `lock` em vez de `ReaderWriterLockSlim` | RWLS | Carga de escrita é dominante (poucas leituras concorrentes) |
 | `Mutex` para CSV (Gateway) | `lock` | Processo único, `Mutex` garante que escritas são visíveis entre threads |
+| `sensor-control` como `Topic` | `Direct` | Necessário para binding com wildcard `#` no Gateway. Todos os componentes (Gateway, Sensor C#, script Python) devem usar o mesmo tipo, sob pena de `precondition_failed` |
+| Sensores não listados no CSV registam-se como `"pendente"` | Rejeitar | Compromisso entre segurança e flexibilidade: dados são ignorados até aprovação manual, mas o sensor não é bloqueado |
+| `except KeyboardInterrupt` em vez de `signal(SIGINT)` | Handler de sinal | Evita `OSError 10038` no Windows: o signal handler fecha o socket enquanto `serve_forever()` ainda o utiliza |

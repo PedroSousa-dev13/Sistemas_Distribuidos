@@ -94,27 +94,32 @@ Ideal para testar fluxo continuo sem precisar de 6 terminais.
 
 4.4. Pre-Processamento
 -----------------------
-cd src\PreProcessamento
-python servico.py
+python src/PreProcessamento/servico.py
 
 O servico RPC escuta na porta 5001 (HTTP JSON).
 Pode definir-se via env var: PRE_PROCESSAMENTO_PORT=5001
 
 4.5. Analise
 ------------
-cd src\Analise
-python servico.py
+python src/Analise/servico.py
 
 O servico RPC escuta na porta 6001 (HTTP JSON).
 Pode definir-se via env var: ANALISE_PORT=6001
 
+NOTA: Em Windows, o Ctrl+C pode crashar com OSError 10038 se o servico
+for encerrado duas vezes (signal handler + except). Isto foi corrigido:
+o SIGINT e tratado apenas pelo except KeyboardInterrupt.
+
 4.6. Interface Web
 -------------------
-cd src\Interface
-python main.py
+python src/Interface/main.py
 
 O servidor HTTP escuta na porta 8000.
 Pode definir-se via env var: INTERFACE_PORT=8000
+
+Variaveis de ambiente para Docker:
+- DB_PATH=/app/dados/sistemas_distribuidos.db
+- ANALISE_RPC_URL=http://analise:6001
 
 Abrir no browser: http://localhost:8000
 
@@ -179,25 +184,40 @@ docker-compose logs -f
 Servicos: rabbitmq, pre-processamento, analise, interface,
 gateway, servidor.
 
+Variaveis de ambiente em Docker:
+- Interface: DB_PATH=/app/dados/sistemas_distribuidos.db,
+  ANALISE_RPC_URL=http://analise:6001
+- Gateway: SERVER_ENDPOINT=servidor:7000, CSV_PATH=/app/dados/gateway.csv,
+  RABBITMQ_HOST=rabbitmq, PRE_PROCESSAMENTO_HOST=pre-processamento
+- Servidor: LISTEN_PORT=7000, ANALISE_HOST=analise
+
+Volumes: ./dados/ montado em /app/dados/ no gateway, servidor e interface.
+Partilha o CSV de sensores, a BD SQLite e os logs.
+
 NOTA: Alguns servicos Python usam apenas a biblioteca padrao.
 Nao necessitam de pip install.
+
+NOTA: O sensor-control exchange e Topic (nao Direct). Todos os
+componentes (Gateway, Sensor C#, simular_sensores.py) devem declarar
+como Topic, caso contrario o RabbitMQ rejeita com precondition_failed.
 
 ============================================
 8. TESTES
 ============================================
 
 Testes Python:
-cd tests\Analise.Tests
-python -m pytest -v
+python -m pytest tests/Analise.Tests -v
 
 Testes C#:
-dotnet test tests\Gateway.Tests\Gateway.Tests.csproj
-dotnet test tests\Servidor.Tests\Servidor.Tests.csproj
+dotnet test tests/Gateway.Tests/Gateway.Tests.csproj
+dotnet test tests/Servidor.Tests/Servidor.Tests.csproj
 
 Para correr todos os testes:
-dotnet test tests\Gateway.Tests\Gateway.Tests.csproj
-dotnet test tests\Servidor.Tests\Servidor.Tests.csproj
-cd tests\Analise.Tests && python -m pytest -v && cd ..\..
+dotnet test tests/Gateway.Tests/Gateway.Tests.csproj
+dotnet test tests/Servidor.Tests/Servidor.Tests.csproj
+python -m pytest tests/Analise.Tests -v
+
+Nota: 14 testes C# + 25 testes Python = 39 testes no total.
 
 ============================================
 9. NOTAS IMPORTANTES
@@ -212,3 +232,8 @@ cd tests\Analise.Tests && python -m pytest -v && cd ..\..
   ANALISE_HOST).
 - Porta do Servidor mudou para 7000 (era 6000 nas versoes iniciais).
 - Gateways nao tem portas TCP fixas (5000/5001 removidas).
+- Sensores nao listados no gateway.csv sao registados como "pendente"
+  e os seus dados sao ignorados. Para autorizar, alterar o estado para
+  "ativo" no ficheiro dados/gateway.csv.
+- O exchange sensor-control e do tipo Topic (nao Direct). Todos os
+  componentes devem usar o mesmo tipo.
