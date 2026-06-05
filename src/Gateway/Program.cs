@@ -124,18 +124,35 @@ namespace Gateway
                 {
                     sensors[sensorId].Estado = "ativo";
                     sensors[sensorId].LastSync = DateTime.UtcNow;
-                    csvDirty = true;
                     Log($"✓ Sensor {sensorId} registado com sucesso");
-
-                    _ = rabbitMQClient.PublicarMensagemControleAsync(
-                        "register_ok",
-                        Mensagem.CriarRegisterOk(sensorId)
-                    );
                 }
                 else
                 {
-                    Log($"✗ Sensor {sensorId} não encontrado no CSV");
+                    var tiposObj = msg.Payload.GetValueOrDefault("tipos_dados");
+                    List<string> tipos = new List<string>();
+                    if (tiposObj is JsonElement je && je.ValueKind == JsonValueKind.Array)
+                    {
+                        tipos = je.EnumerateArray()
+                            .Select(e => e.GetString() ?? "desconhecido")
+                            .ToList();
+                    }
+                    var sensorInfo = new SensorInfo
+                    {
+                        SensorId = sensorId,
+                        Estado = "ativo",
+                        Zona = "desconhecida",
+                        TiposDados = tipos,
+                        LastSync = DateTime.UtcNow
+                    };
+                    sensors[sensorId] = sensorInfo;
+                    Log($"✓ Sensor {sensorId} auto-registado com {sensorInfo.TiposDados.Count} tipo(s)");
                 }
+
+                csvDirty = true;
+                _ = rabbitMQClient.PublicarMensagemControleAsync(
+                    "register_ok",
+                    Mensagem.CriarRegisterOk(sensorId)
+                );
             }
             finally
             {

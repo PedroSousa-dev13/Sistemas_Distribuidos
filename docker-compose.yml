@@ -93,7 +93,7 @@ services:
       pre-processamento:
         condition: service_started
     healthcheck:
-      test: ["CMD", "pgrep", "-f", "Gateway.dll"]
+      test: ["CMD", "sh", "-c", "grep -q Gateway /proc/1/cmdline"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -118,7 +118,7 @@ services:
       - sensor-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/7000"]
+      test: ["CMD", "sh", "-c", "grep -q Servidor /proc/1/cmdline"]
       interval: 30s
       timeout: 5s
       retries: 3
