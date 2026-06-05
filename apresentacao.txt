@@ -1,0 +1,112 @@
+=== SISTEMA DE MONITORIZACAO AMBIENTAL URBANA ===
+        Projeto de Sistemas Distribuidos - 2025/2026
+
+============================================================
+ARQUITETURA
+============================================================
+
+Sensor --> RabbitMQ --> Gateway --TCP--> Servidor --> SQLite
+                            |                |
+                     Pre-Processamento   Analise (RPC)
+                       (RPC 5001)         (RPC 6001)
+                                              |
+                                        Interface Web
+                                          (porta 8000)
+
+6 microservicos orquestrados em Docker:
+  - rabbitmq: message broker (porta 5672)
+  - pre-processamento: uniformizacao de dados (porta 5001)
+  - analise: estatisticas, anomalias, previsao (porta 6001)
+  - interface: dashboard web (porta 8000)
+  - gateway: consume RabbitMQ, RPC, encaminha ao servidor
+  - servidor: persistencia SQLite, invoca analise (porta 7000)
+
+============================================================
+STACK TECNOLOGICA
+============================================================
+
+  - C# .NET 9.0: Sensor, DataStreamClient, Gateway, Servidor
+  - Python 3: Pre-Processamento, Analise, Interface
+  - RabbitMQ 3.13: mensagens (pub/sub topic)
+  - SQLite: persistencia de medicoes e analises
+  - Docker: 6 servicos em rede interna
+
+============================================================
+FLUXO DE DADOS
+============================================================
+
+  1. Sensor publica medicao no RabbitMQ (exchange topic)
+     Routing key: sensor.<sensor_id>.<tipo_dado>
+
+  2. Gateway consome a mensagem, invoca Pre-Processamento
+     via RPC HTTP para validar/uniformizar
+
+  3. Gateway envia dados tratados ao Servidor via TCP
+
+  4. Servidor persiste em SQLite e invoca Analise via RPC
+     quando necessario (estatisticas, anomalias, previsao)
+
+  5. Interface web consulta SQLite (via servidor) e
+     mostra dashboard em tempo real
+
+============================================================
+COMO EXECUTAR
+============================================================
+
+1) TUDO EM DOCKER (recomendado):
+   -------------------------------
+   docker-compose up --build -d
+
+   A interface web fica em http://localhost:8000
+
+2) LANCAR SENSORES SIMULADOS (Python):
+   ------------------------------------
+   python scripts/simular_sensores.py
+
+   6 sensores virtuais com dados realistas:
+    - sensor-temperatura-01 (zona A): temperatura, humidade
+    - sensor-qualidade-01   (zona B): qualidade_ar, pm25, pm10
+    - sensor-ruido-01       (zona A): ruido
+    - sensor-luz-01         (zona C): luminosidade
+    - sensor-ambiente-01    (zona B): temperatura, humidade, q_ar
+    - sensor-particulas-01  (zona C): pm25, pm10, ruido
+
+   Intervalo personalizado (segundos entre medicoes):
+   python scripts/simular_sensores.py 2
+
+3) LANCAR SENSOR INDIVIDUAL (C#, local):
+   --------------------------------------
+   cd src\Sensor
+   dotnet run sensor-01 localhost 5672
+
+   Escolher tipo de medicao no menu interativo.
+
+============================================================
+VISUALIZAR DADOS
+============================================================
+
+  - Dashboard: http://localhost:8000
+  - RabbitMQ UI: http://localhost:15672 (guest/guest)
+  - Logs Docker: docker-compose logs -f gateway
+
+============================================================
+TESTES
+============================================================
+
+  Testes C# (14 testes):
+    dotnet test tests\Gateway.Tests\Gateway.Tests.csproj
+    dotnet test tests\Servidor.Tests\Servidor.Tests.csproj
+
+  Testes Python (25 testes):
+    cd tests\Analise.Tests
+    python -m pytest -v
+
+============================================================
+NOTAS
+============================================================
+
+  - Projeto compilado em .NET 9.0 (nao 8.0)
+  - Todos os servicos Docker tem healthchecks
+  - Logs com rotacao automatica (5 MB)
+  - URLs RPC configuradas via variaveis de ambiente
+  - Sem autenticacao (projeto academico)
