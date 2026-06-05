@@ -1,4 +1,3 @@
-using System.Net;
 using Sensor;
 using DataStreamClient;
 
@@ -12,14 +11,13 @@ class Program
         Console.WriteLine("+--------------------------------------------------------------+");
         Console.WriteLine();
 
-        if (!ValidarArgumentos(args))
+        if (!ValidarArgumentos(args, out var rabbitMQPort))
         {
             ExibirUso();
             return;
         }
 
         var rabbitMQHost = args[0];
-        var rabbitMQPort = int.Parse(args[1]);
         var caminhoEntrada = args[2];
         var caminhoFicheiro = ResolverCaminhoFicheiro(caminhoEntrada) ?? caminhoEntrada;
 
@@ -118,8 +116,10 @@ class Program
         }
     }
 
-    private static bool ValidarArgumentos(string[] args)
+    private static bool ValidarArgumentos(string[] args, out int rabbitMQPort)
     {
+        rabbitMQPort = 0;
+
         if (args.Length < 3)
         {
             Console.WriteLine("[ERRO] Número insuficiente de argumentos.");
@@ -132,7 +132,7 @@ class Program
             return false;
         }
 
-        if (!int.TryParse(args[1], out int port) || port < 1 || port > 65535)
+        if (!int.TryParse(args[1], out rabbitMQPort) || rabbitMQPort < 1 || rabbitMQPort > 65535)
         {
             Console.WriteLine($"[ERRO] Porto RabbitMQ inválido: '{args[1]}'");
             return false;

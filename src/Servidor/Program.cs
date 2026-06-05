@@ -14,7 +14,6 @@ namespace Servidor
         private static Dictionary<string, int> gatewayMap = new Dictionary<string, int>();
         private static Dictionary<int, List<string>> gatewayMessages = new Dictionary<int, List<string>>();
         private static string dataDirectory = "dados";
-        private static readonly object logLock = new object();
         private static int gatewayCount = 0;
         private static Mutex gatewayCountMutex = new Mutex();
         private static int portaOriginal;
@@ -24,13 +23,14 @@ namespace Servidor
 
         static void Main(string[] args)
         {
-            if (args.Length < 1)
+            var listenPortStr = args.Length > 0 ? args[0] : Environment.GetEnvironmentVariable("LISTEN_PORT") ?? "7000";
+            if (!int.TryParse(listenPortStr, out int listenPort) || listenPort < 1 || listenPort > 65535)
             {
-                Console.WriteLine("Uso: Servidor <portoEscuta>");
+                Console.WriteLine($"Uso: Servidor <portoEscuta>");
+                Console.WriteLine($"     Ou definir LISTEN_PORT env var");
+                Console.WriteLine($"Porto inválido: '{listenPortStr}'. Deve ser um número entre 1 e 65535.");
                 return;
             }
-
-            int listenPort = int.Parse(args[0]);
             portaOriginal = listenPort;
 
             ExibirBannerInicial(listenPort);
@@ -387,8 +387,8 @@ namespace Servidor
         private static void ExibirBannerInicial(int porta)
         {
             Console.WriteLine("\n+---------------------------------------------------------------+");
-            Console.WriteLine("|        SERVIDOR - Sistema IoT Distribuido - TP2             |");
-            Console.WriteLine("|        RPC de Analise e Previsao (FASE 1)                   |");
+            Console.WriteLine("|        SERVIDOR - Sistema IoT Distribuido                   |");
+            Console.WriteLine("|        TCP + SQLite + RPC Analise                           |");
             Console.WriteLine("+---------------------------------------------------------------+\n");
 
             Console.WriteLine("Configuracao do Servidor:");
@@ -473,6 +473,11 @@ namespace Servidor
                 gatewayCount--;
                 gatewayCountMutex.ReleaseMutex();
 
+                lock (gatewayMessagesLock)
+                {
+                    gatewayMessages.Remove(gatewayNumber);
+                }
+
                 Console.WriteLine($"[Servidor] Ligação com a Gateway #{gatewayNumber} terminada.");
                 stream?.Dispose();
                 client?.Close();
@@ -538,11 +543,8 @@ namespace Servidor
 
         private static void Log(string message)
         {
-            lock (logLock)
-            {
-                string logPath = Path.Combine(dataDirectory, "servidor.log");
-                File.AppendAllText(logPath, $"{DateTime.Now:o}: {message}\n");
-            }
+            string logPath = Path.Combine(dataDirectory, "servidor.log");
+            LogHelper.Write(logPath, message);
         }
     }
 }

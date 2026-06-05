@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY src/SharedProtocol/SharedProtocol.csproj SharedProtocol/
+COPY src/Gateway/Gateway.csproj Gateway/
+RUN dotnet restore Gateway/Gateway.csproj
+COPY src/SharedProtocol/ SharedProtocol/
+COPY src/Gateway/ Gateway/
+RUN dotnet publish Gateway/Gateway.csproj -c Release -o /app
+
+FROM mcr.microsoft.com/dotnet/runtime:9.0
+WORKDIR /app
+COPY --from=build /app .
+EXPOSE 7000
+ENTRYPOINT ["dotnet", "Gateway.dll"]

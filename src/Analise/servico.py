@@ -1,11 +1,13 @@
 import json
+import signal
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
-from analise_estatistica import calcular_estatisticas, detetar_anomalias, prever_proximo
+from analise_estatistica import calcular_estatisticas, prever_proximo
 from detecao_padroes import analisar_padroes
 
-PORT = 6001
+PORT = int(os.environ.get("ANALISE_PORT", "6001"))
 
 class RPCHandler(BaseHTTPRequestHandler):
     def _responder(self, data, status=200):
@@ -22,9 +24,18 @@ class RPCHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def do_GET(self):
+        if urlparse(self.path).path == "/health":
+            self._responder({"status": "ok"})
+            return
+        self._responder({"sucesso": False, "erro": "Metodo nao encontrado"}, 404)
+
     def do_POST(self):
         path = urlparse(self.path).path
         content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 10 * 1024 * 1024:
+            self._responder({"sucesso": False, "erro": "Payload demasiado grande"}, 413)
+            return
         body = self.rfile.read(content_length) if content_length > 0 else b"{}"
 
         try:
@@ -101,7 +112,8 @@ class RPCHandler(BaseHTTPRequestHandler):
             self._responder({"sucesso": False, "erro": "Erro ao analisar padroes"})
             return
 
-        _, tendencia, _, _ = _analisar_tendencia(valores_num)
+        resultado_previsao = prever_proximo(valores_num)
+        tendencia = resultado_previsao["tendencia"] if resultado_previsao else "estavel"
 
         self._responder({
             "sucesso": True,
@@ -146,26 +158,6 @@ class RPCHandler(BaseHTTPRequestHandler):
         print(f"[Analise] {args[0]} {args[1]} {args[2]}")
 
 
-def _analisar_tendencia(valores):
-    n = len(valores)
-    if n < 2:
-        return 0, "estavel", "baixo", 0
-
-    x = list(range(n))
-    y = valores
-    sum_x = sum(x)
-    sum_y = sum(y)
-    sum_xy = sum(x[i] * y[i] for i in range(n))
-    sum_xx = sum(xi * xi for xi in x)
-    denominador = n * sum_xx - sum_x * sum_x
-    inclinacao = (n * sum_xy - sum_x * sum_y) / denominador if denominador != 0 else 0
-
-    tendencia = "subindo" if inclinacao > 0.01 else ("descendo" if inclinacao < -0.01 else "estavel")
-    risco = "alto" if abs(inclinacao) > 1.0 else ("medio" if abs(inclinacao) > 0.3 else "baixo")
-    media = sum(valores) / n
-    return inclinacao, tendencia, risco, media
-
-
 if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", PORT), RPCHandler)
     print(f"┌──────────────────────────────────────────────────────────────┐")
@@ -175,8 +167,15 @@ if __name__ == "__main__":
     print(f"│  Metodos: /rpc/estatisticas, /rpc/padroes, /rpc/previsao    │")
     print(f"│  Tecnicas: Media movel, Regressao linear, Z-Score           │")
     print(f"└──────────────────────────────────────────────────────────────┘")
+
+    def sinal_paragem(sig, frame):
+        print("\nServico de Analise terminado.")
+        server.server_close()
+
+    signal.signal(signal.SIGTERM, sinal_paragem)
+    signal.signal(signal.SIGINT, sinal_paragem)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nServico de Analise terminado.")
-        server.server_close()
+        sinal_paragem(None, None)

@@ -3,14 +3,15 @@ import json
 import sqlite3
 import urllib.request
 import urllib.error
+import signal
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 
-PORT = 8000
+PORT = int(os.environ.get("INTERFACE_PORT", "8000"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dados", "sistemas_distribuidos.db"))
-RPC_URL = "http://127.0.0.1:6001"
+RPC_URL = os.environ.get("ANALISE_RPC_URL", "http://127.0.0.1:6001")
 
 MIME_TYPES = {
     ".html": "text/html",
@@ -48,7 +49,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed_url.query)
 
         # Roteamento da API
-        if path == "/api/sensores":
+        if path == "/health":
+            self._responder_json({"status": "ok"})
+        elif path == "/api/sensores":
             self._listar_sensores()
         elif path == "/api/tipos":
             self._listar_tipos_dados()
@@ -337,12 +340,18 @@ def iniciar_servidor():
     print(f"│  Servidor Estático: {STATIC_DIR}")
     print(f"│  Base de dados: {DB_PATH}")
     print(f"└──────────────────────────────────────────────────────────────┘")
-    
+
+    def sinal_paragem(sig, frame):
+        print("\nPainel de visualização terminado.")
+        server.server_close()
+
+    signal.signal(signal.SIGTERM, sinal_paragem)
+    signal.signal(signal.SIGINT, sinal_paragem)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nPainel de visualização terminado.")
-        server.server_close()
+        sinal_paragem(None, None)
 
 if __name__ == "__main__":
     iniciar_servidor()

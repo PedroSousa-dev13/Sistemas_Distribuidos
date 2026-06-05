@@ -58,8 +58,8 @@ namespace Servidor
 
         public AnaliseClient(string host = "127.0.0.1", int port = 6001)
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromSeconds(30);
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            host = Environment.GetEnvironmentVariable("ANALISE_HOST") ?? host;
             _baseUrl = $"http://{host}:{port}";
         }
 
@@ -69,10 +69,31 @@ namespace Servidor
             _baseUrl = baseUrl;
         }
 
+        private static async Task<T?> ComRetryAsync<T>(Func<Task<T?>> action, int maxRetries = 2) where T : class?
+        {
+            for (int i = 0; ; i++)
+            {
+                try
+                {
+                    return await action();
+                }
+                catch (Exception ex) when (i < maxRetries)
+                {
+                    Console.WriteLine($"[Servidor] RPC falhou (tentativa {i + 1}/{maxRetries}): {ex.Message}");
+                    await Task.Delay(1000 * (i + 1));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Servidor] Erro ao chamar RPC: {ex.Message}");
+                    return null;
+                }
+            }
+        }
+
         public async Task<EstatisticasResult?> CalcularEstatisticasAsync(
             string sensorId, string tipoDado, List<double> valores)
         {
-            try
+            return await ComRetryAsync(async () =>
             {
                 var payload = new Dictionary<string, object>
                 {
@@ -88,18 +109,13 @@ namespace Servidor
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 return JsonSerializer.Deserialize<EstatisticasResult>(responseBody);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Servidor] Erro ao chamar RPC CalcularEstatisticas: {ex.Message}");
-                return null;
-            }
+            });
         }
 
         public async Task<PadroesResult?> DetetarPadroesAsync(
             string sensorId, string tipoDado, List<double> valores)
         {
-            try
+            return await ComRetryAsync(async () =>
             {
                 var payload = new Dictionary<string, object>
                 {
@@ -115,18 +131,13 @@ namespace Servidor
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 return JsonSerializer.Deserialize<PadroesResult>(responseBody);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Servidor] Erro ao chamar RPC DetetarPadroes: {ex.Message}");
-                return null;
-            }
+            });
         }
 
         public async Task<PrevisaoResult?> PreverRiscosAsync(
             string sensorId, string tipoDado, List<double> valores)
         {
-            try
+            return await ComRetryAsync(async () =>
             {
                 var payload = new Dictionary<string, object>
                 {
@@ -142,12 +153,7 @@ namespace Servidor
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 return JsonSerializer.Deserialize<PrevisaoResult>(responseBody);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Servidor] Erro ao chamar RPC PreverRiscos: {ex.Message}");
-                return null;
-            }
+            });
         }
     }
 }

@@ -30,6 +30,12 @@ services:
     networks:
       - sensor-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5001/health').status)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   analise:
     build:
@@ -41,6 +47,12 @@ services:
     networks:
       - sensor-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:6001/health').status)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   interface:
     build:
@@ -56,6 +68,49 @@ services:
     restart: unless-stopped
     depends_on:
       - analise
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').status)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: gateway-service
+    volumes:
+      - ./dados:/app/dados
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    depends_on:
+      - rabbitmq
+      - servidor
+      - pre-processamento
+    environment:
+      - SERVER_ENDPOINT=servidor:7000
+      - CSV_PATH=/app/dados/gateway.csv
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - PRE_PROCESSAMENTO_HOST=pre-processamento
+
+  servidor:
+    build:
+      context: .
+      dockerfile: Dockerfile.servidor
+    container_name: servidor-central
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./dados:/app/dados
+    networks:
+      - sensor-network
+    restart: unless-stopped
+    environment:
+      - LISTEN_PORT=7000
+      - ANALISE_HOST=analise
 
 volumes:
   rabbitmq_data:

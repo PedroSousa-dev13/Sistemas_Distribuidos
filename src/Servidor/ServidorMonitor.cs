@@ -1,28 +1,21 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using System.Linq;
 using Microsoft.Data.Sqlite;
+using SharedProtocol;
 
 namespace Servidor
 {
-    /// <summary>
-    /// Classe auxiliar para gerir operações de I/O do servidor usando base de dados SQLite.
-    /// Fornece métodos thread-safe para persistência de dados.
-    /// </summary>
     public class ServidorMonitor
     {
         private readonly string _dataDirectory;
         private readonly string _connectionString;
         private readonly object _dbLock;
-        private readonly object _logLock;
 
         public ServidorMonitor(string dataDirectory)
         {
             _dataDirectory = dataDirectory;
             _dbLock = new object();
-            _logLock = new object();
 
             EnsureDataDirectory();
             _connectionString = $"Data Source={Path.Combine(_dataDirectory, "sistemas_distribuidos.db")}";
@@ -30,9 +23,6 @@ namespace Servidor
             InicializarBancoDados();
         }
 
-        /// <summary>
-        /// Garante que o diretório de dados existe.
-        /// </summary>
         public void EnsureDataDirectory()
         {
             if (!Directory.Exists(_dataDirectory))
@@ -41,9 +31,6 @@ namespace Servidor
             }
         }
 
-        /// <summary>
-        /// Inicializa a base de dados SQLite e cria as tabelas se não existirem.
-        /// </summary>
         private void InicializarBancoDados()
         {
             lock (_dbLock)
@@ -96,9 +83,6 @@ namespace Servidor
             }
         }
 
-        /// <summary>
-        /// Persiste uma medição na base de dados SQLite.
-        /// </summary>
         public bool PersistirMedicao(string tipoDado, string timestamp, string sensorId, string valor, string? payloadJson = null)
         {
             try
@@ -148,9 +132,6 @@ namespace Servidor
             }
         }
 
-        /// <summary>
-        /// Persiste o resultado de uma análise estatística ou padrão.
-        /// </summary>
         public bool PersistirAnalise(string sensorId, string tipoDado, string tipoAnalise, string resultado)
         {
             try
@@ -184,29 +165,12 @@ namespace Servidor
             }
         }
 
-        /// <summary>
-        /// Regista uma mensagem no ficheiro de log do servidor.
-        /// Thread-safe.
-        /// </summary>
         public void Log(string message)
         {
-            lock (_logLock)
-            {
-                try
-                {
-                    string logPath = Path.Combine(_dataDirectory, "servidor.log");
-                    File.AppendAllText(logPath, $"{DateTime.Now:o}: {message}\n");
-                }
-                catch (Exception)
-                {
-                    // Ignora erros de log do sistema de ficheiros silenciosamente
-                }
-            }
+            string logPath = Path.Combine(_dataDirectory, "servidor.log");
+            LogHelper.Write(logPath, message);
         }
 
-        /// <summary>
-        /// Lê medições do tipo de dado especificado a partir do SQLite.
-        /// </summary>
         public List<(string timestamp, string sensorId, string valor)> LerMedicoes(string tipoDado, int limite = 1000)
         {
             var resultados = new List<(string, string, string)>();
@@ -251,9 +215,6 @@ namespace Servidor
             return resultados;
         }
 
-        /// <summary>
-        /// Retorna a lista de todos os tipos de dados atualmente presentes na BD.
-        /// </summary>
         public List<string> ObterTiposDados()
         {
             var tipos = new List<string>();
@@ -287,14 +248,8 @@ namespace Servidor
             return tipos;
         }
 
-        /// <summary>
-        /// Retorna o caminho do diretório de dados.
-        /// </summary>
         public string DataDirectory => _dataDirectory;
 
-        /// <summary>
-        /// Lê medições incluindo o payload_json para tipos nao numericos (ex: imagem).
-        /// </summary>
         public List<(string timestamp, string sensorId, string valor, string? payloadJson)> LerMedicoesComPayload(string tipoDado, int limite = 100)
         {
             var resultados = new List<(string, string, string, string?)>();
@@ -338,9 +293,6 @@ namespace Servidor
             return resultados;
         }
 
-        /// <summary>
-        /// Retorna a lista de tipos de dados suportados padrão.
-        /// </summary>
         public static string[] TiposDadosSuportados => new[]
         {
             "temperatura", "humidade", "qualidade_ar", "ruido", 

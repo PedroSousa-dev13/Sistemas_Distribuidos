@@ -31,7 +31,7 @@ public class RabbitMQGatewayClient : IDisposable
         public string Queue { get; set; } = "";
     }
 
-    public event EventHandler<Mensagem>? OnMensagemRecebida;
+    public event Func<object, Mensagem, Task>? OnMensagemRecebida;
     public event EventHandler<string>? OnLog;
 
     public RabbitMQGatewayClient(
@@ -292,7 +292,8 @@ public class RabbitMQGatewayClient : IDisposable
                 {
                     try
                     {
-                        OnMensagemRecebida?.Invoke(this, queued.Message);
+                        if (OnMensagemRecebida != null)
+                            await OnMensagemRecebida.Invoke(this, queued.Message);
 
                         await _channel!.BasicAckAsync(queued.DeliveryTag, multiple: false);
                     }

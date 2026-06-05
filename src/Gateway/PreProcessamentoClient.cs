@@ -29,8 +29,8 @@ namespace Gateway
 
         public PreProcessamentoClient(string host = "127.0.0.1", int port = 5001)
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromSeconds(5);
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            host = Environment.GetEnvironmentVariable("PRE_PROCESSAMENTO_HOST") ?? host;
             _baseUrl = $"http://{host}:{port}";
         }
 
@@ -40,10 +40,31 @@ namespace Gateway
             _baseUrl = baseUrl;
         }
 
+        private static async Task<T?> ComRetryAsync<T>(Func<Task<T?>> action, int maxRetries = 2) where T : class?
+        {
+            for (int i = 0; ; i++)
+            {
+                try
+                {
+                    return await action();
+                }
+                catch (Exception ex) when (i < maxRetries)
+                {
+                    Console.WriteLine($"[Gateway] RPC falhou (tentativa {i + 1}/{maxRetries}): {ex.Message}");
+                    await Task.Delay(1000 * (i + 1));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Gateway] Erro ao chamar RPC: {ex.Message}");
+                    return null;
+                }
+            }
+        }
+
         public async Task<PreProcessamentoRpcResult?> UniformizarDadosAsync(
             string sensorId, string tipoDado, double valor, string timestamp, string formatoOriginal = "JSON")
         {
-            try
+            return await ComRetryAsync(async () =>
             {
                 var payload = new Dictionary<string, object>
                 {
@@ -61,18 +82,13 @@ namespace Gateway
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 return JsonSerializer.Deserialize<PreProcessamentoRpcResult>(responseBody);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Gateway] Erro ao chamar RPC UniformizarDados: {ex.Message}");
-                return null;
-            }
+            });
         }
 
         public async Task<ValidacaoRpcResult?> ValidarDadosAsync(
             string sensorId, string tipoDado, double valor)
         {
-            try
+            return await ComRetryAsync(async () =>
             {
                 var payload = new Dictionary<string, object>
                 {
@@ -88,12 +104,7 @@ namespace Gateway
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 return JsonSerializer.Deserialize<ValidacaoRpcResult>(responseBody);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Gateway] Erro ao chamar RPC ValidarDados: {ex.Message}");
-                return null;
-            }
+            });
         }
     }
 }

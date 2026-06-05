@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -24,33 +23,34 @@ namespace Gateway
         private static PreProcessamentoClient preProcessamentoClient = new PreProcessamentoClient();
         private static RabbitMQGatewayClient rabbitMQClient;
 
-        private static readonly object logLock = new object();
         private static readonly object serverLock = new object();
         private static bool isServerConnected = false;
+        private static bool csvDirty = false;
 
         static async Task Main(string[] args)
         {
-            if (args.Length < 3)
+            serverEndpoint = args.Length > 0 ? args[0] : Environment.GetEnvironmentVariable("SERVER_ENDPOINT") ?? "";
+            csvPath = args.Length > 1 ? args[1] : Environment.GetEnvironmentVariable("CSV_PATH") ?? "dados/gateway.csv";
+            var rabbitMQHost = args.Length > 2 ? args[2] : Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq";
+            var rabbitMQPort = args.Length > 3 && int.TryParse(args[3], out int p) ? p
+                : int.TryParse(Environment.GetEnvironmentVariable("RABBITMQ_PORT"), out int p2) ? p2 : 5672;
+
+            if (string.IsNullOrEmpty(serverEndpoint))
             {
                 Console.WriteLine("Uso: Gateway <serverEndpoint> <caminhoCSV> [RABBITMQ_HOST] [RABBITMQ_PORT]");
+                Console.WriteLine("     Ou definir SERVER_ENDPOINT env var");
                 return;
             }
-
-            serverEndpoint = args[0];
-            csvPath = args[1];
-            var rabbitMQHost = args.Length > 2 ? args[2] : "localhost";
-            var rabbitMQPort = args.Length > 3 && int.TryParse(args[3], out int port) ? port : 5672;
-            gatewayId = $"gateway-{Guid.NewGuid():N}".Substring(0, 20);
+            gatewayId = $"gateway-{Guid.NewGuid():N}";
 
             ExibirBannerInicial(serverEndpoint, csvPath, rabbitMQHost, rabbitMQPort);
 
             LerCSV();
-            ConnectToServer();
+            await ConnectToServerAsync();
 
-            // Inicializar cliente RabbitMQ
             rabbitMQClient = new RabbitMQGatewayClient(gatewayId, sensors, rabbitMQHost, rabbitMQPort);
             rabbitMQClient.OnLog += (s, msg) => Log($"[RabbitMQ] {msg}");
-            rabbitMQClient.OnMensagemRecebida += ProcessarMensagemRecebida;
+            rabbitMQClient.OnMensagemRecebida += ProcessarMensagemRecebidaAsync;
 
             if (!await rabbitMQClient.IniciarAsync())
             {
@@ -58,7 +58,6 @@ namespace Gateway
                 return;
             }
 
-            // Start watchdog thread
             Thread watchdogThread = new Thread(WatchdogWorker) { IsBackground = true };
             watchdogThread.Start();
 
@@ -66,8 +65,7 @@ namespace Gateway
             Log($"Gateway iniciada com sucesso - ID: {gatewayId}");
 
             Console.WriteLine("\nPressione Ctrl+C para terminar...\n");
-            
-            // Keep the application running
+
             try
             {
                 await Task.Delay(Timeout.Infinite);
@@ -78,11 +76,12 @@ namespace Gateway
             }
             finally
             {
+                await FlushCsvAsync();
                 await rabbitMQClient.PararAsync();
             }
         }
 
-        private static void ProcessarMensagemRecebida(object sender, Mensagem msg)
+        private static async Task ProcessarMensagemRecebidaAsync(object sender, Mensagem msg)
         {
             try
             {
@@ -97,7 +96,7 @@ namespace Gateway
                         break;
 
                     case TiposMensagem.DATA:
-                        ProcessarData(msg);
+                        await ProcessarDataAsync(msg);
                         break;
 
                     case TiposMensagem.HEARTBEAT:
@@ -125,7 +124,7 @@ namespace Gateway
                 {
                     sensors[sensorId].Estado = "ativo";
                     sensors[sensorId].LastSync = DateTime.UtcNow;
-                    EscreverCSV();
+                    csvDirty = true;
                     Log($"✓ Sensor {sensorId} registado com sucesso");
 
                     _ = rabbitMQClient.PublicarMensagemControleAsync(
@@ -144,7 +143,7 @@ namespace Gateway
             }
         }
 
-        private static void ProcessarData(Mensagem msg)
+        private static async Task ProcessarDataAsync(Mensagem msg)
         {
             string sensorId = msg.SensorId;
             string tipoDado = msg.Payload.GetValueOrDefault("tipo_dado", "")?.ToString() ?? "";
@@ -152,7 +151,12 @@ namespace Gateway
 
             Log($"[DATA] Sensor: {sensorId}, Tipo: {tipoDado}, Valor: {valorObj}");
 
-            // --- RPC: Pre-Processamento (Uniformizar + Validar) ---
+            if (!sensors.ContainsKey(sensorId))
+            {
+                Log($"[AVISO] Sensor {sensorId} nao registado - dados ignorados");
+                return;
+            }
+
             if (!string.IsNullOrEmpty(tipoDado) && valorObj != null)
             {
                 double valorOriginal = 0;
@@ -168,9 +172,8 @@ namespace Gateway
 
                 if (tipoDado != "imagem")
                 {
-                    var rpcResult = preProcessamentoClient
-                        .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp)
-                        .GetAwaiter().GetResult();
+                    var rpcResult = await preProcessamentoClient
+                        .UniformizarDadosAsync(sensorId, tipoDado, valorOriginal, msg.Timestamp);
 
                     if (rpcResult?.Sucesso == true)
                     {
@@ -178,9 +181,8 @@ namespace Gateway
                         msg.Payload["unidade"] = rpcResult.Unidade;
                         Log($"[RPC] Uniformizar: {sensorId}/{tipoDado} {valorOriginal} -> {rpcResult.ValorUniformizado} {rpcResult.Unidade}");
 
-                        var validacao = preProcessamentoClient
-                            .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado)
-                            .GetAwaiter().GetResult();
+                        var validacao = await preProcessamentoClient
+                            .ValidarDadosAsync(sensorId, tipoDado, rpcResult.ValorUniformizado);
 
                         if (validacao?.Valido == false)
                         {
@@ -205,8 +207,7 @@ namespace Gateway
 
             msg.Payload["gateway_id"] = gatewayId;
 
-            // Enviar para servidor
-            if (SendToServer(msg))
+            if (await SendToServerAsync(msg))
             {
                 AtualizarLastSync(sensorId);
             }
@@ -219,25 +220,23 @@ namespace Gateway
             Log($"[HEARTBEAT] Sensor {sensorId} online");
         }
 
-        private static bool SendToServer(Mensagem msg)
+        private static async Task<bool> SendToServerAsync(Mensagem msg)
         {
             lock (serverLock)
             {
+                if (serverStream == null || serverReader == null || !isServerConnected)
+                {
+                    Log($"✗ Stream do servidor não disponível");
+                    return false;
+                }
+
                 try
                 {
-                    if (serverStream == null || serverReader == null)
-                    {
-                        Log($"✗ Stream do servidor não disponível");
-                        isServerConnected = false;
-                        return false;
-                    }
-
                     string json = MensagemSerializer.Serializar(msg) + "\n";
                     byte[] data = Encoding.UTF8.GetBytes(json);
                     serverStream.Write(data, 0, data.Length);
                     serverStream.Flush();
 
-                    // Apenas aguardar resposta para mensagens DATA
                     if (msg.Tipo == TiposMensagem.DATA)
                     {
                         serverStream.ReadTimeout = 5000;
@@ -269,7 +268,6 @@ namespace Gateway
                         catch (TimeoutException)
                         {
                             Log($"✗ Timeout ao aguardar ACK do servidor");
-                            isServerConnected = false;
                             return false;
                         }
                         finally
@@ -287,10 +285,54 @@ namespace Gateway
                 {
                     Log($"✗ Erro ao enviar para servidor: {ex.Message}");
                     isServerConnected = false;
-                    return false;
+                    _ = ReconectarAsync();
                 }
 
                 return false;
+            }
+        }
+
+        private static async Task ReconectarAsync()
+        {
+            var parts = serverEndpoint.Split(':');
+            string ip = parts[0];
+            int port = int.Parse(parts[1]);
+            int tentativas = 0;
+            int maxTentativas = 20;
+
+            while (tentativas < maxTentativas)
+            {
+                tentativas++;
+                try
+                {
+                    Log($"A reconectar ao servidor {ip}:{port} (tentativa {tentativas}/{maxTentativas})...");
+                    var novoClient = new TcpClient();
+                    novoClient.Connect(ip, port);
+
+                    lock (serverLock)
+                    {
+                        try { serverStream?.Dispose(); } catch { }
+                        try { serverReader?.Dispose(); } catch { }
+                        try { serverClient?.Close(); } catch { }
+
+                        serverClient = novoClient;
+                        serverStream = serverClient.GetStream();
+                        serverReader = new StreamReader(serverStream, new UTF8Encoding(false));
+                        isServerConnected = true;
+                    }
+
+                    Log($"✓ Reconectado ao servidor! ({ip}:{port})");
+                    return;
+                }
+                catch
+                {
+                    if (tentativas >= maxTentativas)
+                    {
+                        Log($"❌ Falha ao reconectar após {maxTentativas} tentativas");
+                        return;
+                    }
+                    await Task.Delay(5000);
+                }
             }
         }
 
@@ -307,14 +349,25 @@ namespace Gateway
                         if ((DateTime.UtcNow - sensor.LastSync.ToUniversalTime()).TotalSeconds > 60 && sensor.Estado == "ativo")
                         {
                             sensor.Estado = "manutencao";
+                            csvDirty = true;
                             Log($"Sensor {sensor.SensorId} marcado como manutencao por timeout");
                         }
                     }
-                    EscreverCSV();
+
+                    if (csvDirty)
+                    {
+                        EscreverCSV();
+                        csvDirty = false;
+                    }
                 }
                 finally
                 {
                     csvMutex.ReleaseMutex();
+                }
+
+                if (!isServerConnected)
+                {
+                    _ = ReconectarAsync();
                 }
             }
         }
@@ -373,13 +426,31 @@ namespace Gateway
                 if (sensors.ContainsKey(id))
                 {
                     sensors[id].LastSync = DateTime.UtcNow;
-                    EscreverCSV();
+                    csvDirty = true;
                 }
             }
             finally
             {
                 csvMutex.ReleaseMutex();
             }
+        }
+
+        private static Task FlushCsvAsync()
+        {
+            csvMutex.WaitOne();
+            try
+            {
+                if (csvDirty)
+                {
+                    EscreverCSV();
+                    csvDirty = false;
+                }
+            }
+            finally
+            {
+                csvMutex.ReleaseMutex();
+            }
+            return Task.CompletedTask;
         }
 
         private static void EscreverCSV()
@@ -389,7 +460,7 @@ namespace Gateway
             File.WriteAllLines(csvPath, lines);
         }
 
-        private static void ConnectToServer()
+        private static async Task ConnectToServerAsync()
         {
             var parts = serverEndpoint.Split(':');
             string ip = parts[0];
@@ -428,7 +499,7 @@ namespace Gateway
                     {
                         Console.WriteLine($"Aguardando 5 segundos...\n");
                     }
-                    Thread.Sleep(5000);
+                    await Task.Delay(5000);
                 }
             }
         }
@@ -436,8 +507,8 @@ namespace Gateway
         private static void ExibirBannerInicial(string servidor, string csv, string host, int port)
         {
             Console.WriteLine("\n+---------------------------------------------------------------+");
-            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido (RabbitMQ)           |");
-            Console.WriteLine("|       RPC de Pre-Processamento (FASE 1)                     |");
+            Console.WriteLine("|       GATEWAY - Sistema IoT Distribuido                     |");
+            Console.WriteLine("|       RabbitMQ + RPC Pre-Processamento                      |");
             Console.WriteLine("+---------------------------------------------------------------+\n");
 
             Console.WriteLine("Configuracao Inicial:");
@@ -461,12 +532,9 @@ namespace Gateway
 
         private static void Log(string message)
         {
-            lock (logLock)
-            {
-                var timestamp = $"{DateTime.Now:o}";
-                Console.WriteLine($"[{timestamp}] {message}");
-                File.AppendAllText("gateway.log", $"{timestamp}: {message}\n");
-            }
+            var timestamp = $"{DateTime.Now:o}";
+            Console.WriteLine($"[{timestamp}] {message}");
+            LogHelper.Write("gateway.log", message);
         }
     }
 }

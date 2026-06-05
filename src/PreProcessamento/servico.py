@@ -1,9 +1,11 @@
 import json
 import math
+import signal
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
-PORT = 5001
+PORT = int(os.environ.get("PRE_PROCESSAMENTO_PORT", "5001"))
 
 LIMITES = {
     "temperatura": {"min": -50, "max": 100, "unidade": "celsius"},
@@ -61,9 +63,18 @@ class RPCHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
+    def do_GET(self):
+        if urlparse(self.path).path == "/health":
+            self._responder({"status": "ok"})
+            return
+        self._responder({"sucesso": False, "erro": "Metodo nao encontrado"}, 404)
+
     def do_POST(self):
         path = urlparse(self.path).path
         content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 10 * 1024 * 1024:
+            self._responder({"sucesso": False, "erro": "Payload demasiado grande"}, 413)
+            return
         body = self.rfile.read(content_length) if content_length > 0 else b"{}"
 
         try:
@@ -140,8 +151,15 @@ if __name__ == "__main__":
     print(f"│  Metodos: /rpc/uniformizar, /rpc/validar")
     print(f"│  Formatos suportados: JSON, XML, CSV, Fahrenheit, Kelvin    │")
     print(f"└──────────────────────────────────────────────────────────────┘")
+
+    def sinal_paragem(sig, frame):
+        print("\nServico de Pre-Processamento terminado.")
+        server.server_close()
+
+    signal.signal(signal.SIGTERM, sinal_paragem)
+    signal.signal(signal.SIGINT, sinal_paragem)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nServico de Pre-Processamento terminado.")
-        server.server_close()
+        sinal_paragem(None, None)

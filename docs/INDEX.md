@@ -1,30 +1,31 @@
 ﻿INDICE COMPLETO DA ENTREGA
 ==========================
 
-Este indice foi escrito para estudo e navegacao rapida antes da defesa.
-
-1) DOCUMENTOS PRINCIPAIS (./docs/)
+1) DOCUMENTOS PRINCIPAIS
 -----------------------------------
-- README.md (raiz)
-  Guia geral do projeto e comandos de execucao.
+- docs/README.md
+  Guia geral, comandos, estado atual.
 
 - docs/PROTOCOLO.md
-  Especificacao formal do protocolo de comunicacao.
+  Especificacao do protocolo de comunicacao (Mensagem, serializacao).
 
-- docs/APRESENTACAO.txt
-  Guiao completo de defesa oral (versao extensa).
+- docs/RABBITMQ_README.md
+  Topologia RabbitMQ, exchanges, routing.
 
-- docs/melhorias.txt
-  Resumo tecnico das melhorias e limpeza final.
+- docs/ROUTING_STRATEGY.md
+  Estrategia de routing por tipo e zona.
 
-- docs/comparacao.txt
-  Analise comparativa entre a solucao entregue e alternativas.
+- docs/TESTE_COMPLETO.md
+  Guia de testes passo-a-passo.
 
-- docs/aa.txt
-  Argumentario de apoio para perguntas de alternativas.
+- docs/MUDANCAS.md
+  Historico de alteracoes (Fase 2 - RabbitMQ).
 
-- docs/REDE_DISTRIBUIDA.txt
-  Notas para execucao em varios computadores.
+- docs/FASE_3_COMPLETA.md
+  Documentacao da Fase 3 (microservicos Python).
+
+- docs/ARQUITETURA.md
+  Diagramas e decisoes arquiteturais.
 
 
 2) CODIGO FONTE POR MODULO
@@ -35,122 +36,86 @@ Este indice foi escrito para estudo e navegacao rapida antes da defesa.
 - src/SharedProtocol/TiposMensagem.cs
 - src/SharedProtocol/CodigosErro.cs
 - src/SharedProtocol/PortosProtocolo.cs
-
-Responsabilidade:
-- Definir contrato de mensagens e regras de validacao comuns.
+- src/SharedProtocol/LogHelper.cs
 
 2.2) Sensor
 - src/Sensor/Program.cs
-- src/Sensor/SensorClient.cs
-
-Responsabilidade:
-- Registo do sensor, envio manual de medicoes, heartbeat e rececao de ACK.
+- src/Sensor/RabbitMQSensorClient.cs
 
 2.3) DataStreamClient
 - src/DataStreamClient/Program.cs
-- src/DataStreamClient/DataStreamReader.cs
-
-Responsabilidade:
-- Leitura de CSV e simulacao automatica de envio de dados por multiplos sensores.
 
 2.4) Gateway
 - src/Gateway/Program.cs
+- src/Gateway/RabbitMQGatewayClient.cs
+- src/Gateway/PreProcessamentoClient.cs
 - src/Gateway/SensorInfo.cs
-
-Responsabilidade:
-- Validar sensor no CSV, receber mensagens, gerir estado, encaminhar DATA.
 
 2.5) Servidor
 - src/Servidor/Program.cs
 - src/Servidor/ServidorMonitor.cs
+- src/Servidor/AnaliseClient.cs
 
-Responsabilidade:
-- Processar DATA e persistir por tipo com sincronizacao segura.
+2.6) Pre-Processamento (Python)
+- src/PreProcessamento/servico.py
 
+2.7) Analise (Python)
+- src/Analise/servico.py
+- src/Analise/analise_estatistica.py
+- src/Analise/detecao_padroes.py
 
-3) FICHEIROS DE DADOS E CONFIGURACAO
-------------------------------------
-- sensores.csv
-  Fonte de verdade para sensores conhecidos e respetivo estado inicial.
-
-- dados/stream_dados.csv
-  Conjunto de dados para streaming automatico.
-
-- dados/*.txt
-  Saida persistida por tipo de dado.
-
-- .vscode/tasks.json
-  Tasks de build e execucao local.
-
-- .vscode/launch.json
-  Perfis de debug para componentes.
+2.8) Interface (Python)
+- src/Interface/main.py
 
 
-4) SEQUENCIA OFICIAL DE DEMONSTRACAO
-------------------------------------
-Passo 1:
-- dotnet build SharedProtocol.sln -c Debug
-
-Passo 2:
-- Servidor: dotnet run --project src/Servidor/Servidor.csproj -- 6000
-
-Passo 3:
-- Gateway: dotnet run --project src/Gateway/Gateway.csproj -- 5000 127.0.0.1:6000 ./sensores.csv
-
-Passo 4:
-- Sensor: dotnet run --project src/Sensor/Sensor.csproj -- 127.0.0.1 5000 sensor-01
-
-Passo 5:
-- DataStreamClient: dotnet run --project src/DataStreamClient/DataStreamClient.csproj -- 127.0.0.1 5000 dados/stream_dados.csv
-
-Passo 6:
-- Pressionar tecla para iniciar stream.
-
-Passo 7:
-- Validar ficheiros em dados/ e logs.
+3) FICHEIROS DE CONFIGURACAO
+---------------------------
+- sensores.csv - Fonte de verdade para sensores conhecidos
+- docker-compose.yml - Orquestracao Docker (6 servicos)
+- Dockerfile.gateway / Dockerfile.servidor / Dockerfile.* - Dockerfiles
 
 
-5) PERGUNTAS PROVAVEIS E ONDE RESPONDER
----------------------------------------
-"Porque TCP e nao UDP?"
-- Ver comparacao.txt e aa.txt.
-
-"Como garantem consistencia na escrita?"
-- Ver src/Servidor/Program.cs e src/Servidor/ServidorMonitor.cs.
-
-"Como lidam com falhas de sensor?"
-- Ver heartbeat/watchdog em src/Gateway/Program.cs.
-
-"Como validam mensagens?"
-- Ver src/SharedProtocol/Mensagem.cs.
-
-"Como simulam carga?"
-- Ver DataStreamClient em src/DataStreamClient/.
+4) TESTES
+---------
+- tests/Gateway.Tests/    - 6 testes (xUnit + Moq)
+- tests/Servidor.Tests/   - 8 testes (xUnit + Moq)
+- tests/Analise.Tests/    - 25 testes (pytest)
 
 
-6) ESTADO FINAL DA ENTREGA
---------------------------
-- Build: ok.
-- Fluxo principal: funcional.
-- Documentacao: detalhada para estudo e defesa.
-- Alternativas: documentadas como extensao, nao como requisito obrigatorio.
+5) SEQUENCIA DE DEMONSTRACAO
+----------------------------
+Opcao A - Tudo em Docker:
+  docker-compose up --build -d
+
+Opcao B - Local:
+  Terminal 1: docker-compose up -d rabbitmq pre-processamento analise interface
+  Terminal 2: dotnet run --project src/Servidor/Servidor.csproj -- 7000
+  Terminal 3: dotnet run --project src/Gateway/Gateway.csproj -- 127.0.0.1:7000 ./sensores.csv
+  Terminal 4: dotnet run --project src/Sensor/Sensor.csproj -- sensor-01
 
 
-7) ROTEIRO DE ESTUDO (PARA APRESENTAR SEM BLOQUEAR)
----------------------------------------------------
-Passo A - dominar fluxo base:
-- REGISTER -> DATA -> DATA_ACK -> HEARTBEAT.
+6) PERGUNTAS PROVAVEIS
+----------------------
+"Como funciona a comunicacao?"
+- Sensor -> RabbitMQ (AMQP) -> Gateway -> TCP -> Servidor
+- Gateway -> Pre-Processamento (HTTP RPC)
+- Servidor -> Analise (HTTP RPC)
 
-Passo B - memorizar funcoes nucleares por modulo:
-- SensorClient: IniciarAsync, RegistrarAsync, EnviarMedicaoAsync, HeartbeatLoopAsync.
-- Gateway: HandleSensor, ConsumerWorker, SendToServer, WatchdogWorker.
-- Servidor: HandleGateway, ProcessarDATA, PersistirMedicao.
-- DataStreamClient: CarregarAsync/ObterPorSensor/ProcessarSensorAsync.
-- SharedProtocol: construtor Mensagem + serializer + tipos oficiais.
+"Como lidam com falhas?"
+- Gateway: watchdog TCP reconecta ao Servidor automaticamente
+- RPC: retry com backoff (2 tentativas, delay progressivo)
+- RabbitMQ: filas persistentes, conexao auto-recuperavel
 
-Passo C - preparar 5 respostas curtas:
-- concorrencia,
-- ACK,
-- heartbeat,
-- validacao de mensagens,
-- justificacao de arquitetura.
+"Como garantem consistencia?"
+- Mutex nas escritas CSV e contagem de gateways
+- SQLite com transacoes no Servidor
+- Cleanup de gateways desconectados via try/finally
+
+
+7) ESTADO FINAL
+---------------
+- Build: 0 erros
+- Testes C#: 14/14 passing
+- Testes Python: 25/25 passing
+- Docker: 6 servicos orquestrados
+- Documentacao: completa para estudo e defesa
