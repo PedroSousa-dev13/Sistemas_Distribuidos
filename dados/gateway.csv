@@ -1,0 +1,6 @@
+sensor-particulas-01|ativo|desconhecida|[pm25,pm10,ruido]|2026-06-05T01:07:48.2830892Z
+sensor-ambiente-01|ativo|desconhecida|[temperatura,humidade,qualidade_ar]|2026-06-05T01:07:48.4054826Z
+sensor-luz-01|ativo|desconhecida|[luminosidade]|2026-06-05T01:07:48.3071600Z
+sensor-temperatura-01|ativo|desconhecida|[temperatura,humidade]|2026-06-05T01:07:48.3332267Z
+sensor-ruido-01|ativo|desconhecida|[ruido]|2026-06-05T01:07:48.3580268Z
+sensor-qualidade-01|ativo|desconhecida|[qualidade_ar,pm25,pm10]|2026-06-05T01:07:48.3813480Z

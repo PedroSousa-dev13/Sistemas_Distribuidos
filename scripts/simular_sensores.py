@@ -68,7 +68,7 @@ def sensor_worker(sensor, interval, stop_event):
         channel = conn.channel()
 
         channel.exchange_declare(exchange=EXCHANGE_MEASUREMENTS, exchange_type="topic", durable=True)
-        channel.exchange_declare(exchange=EXCHANGE_CONTROL, exchange_type="direct", durable=True)
+        channel.exchange_declare(exchange=EXCHANGE_CONTROL, exchange_type="topic", durable=True)
 
         # Registar sensor
         msg_reg = criar_registo(sensor["id"], sensor["tipos"])

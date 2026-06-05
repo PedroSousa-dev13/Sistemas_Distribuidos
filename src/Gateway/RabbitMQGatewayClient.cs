@@ -125,7 +125,7 @@ public class RabbitMQGatewayClient : IDisposable
 
             await _channel.ExchangeDeclareAsync(
                 "sensor-control",
-                ExchangeType.Direct,
+                ExchangeType.Topic,
                 durable: true,
                 autoDelete: false
             );
