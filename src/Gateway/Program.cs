@@ -134,7 +134,24 @@ namespace Gateway
                 }
                 else
                 {
-                    Log($"✗ Sensor {sensorId} rejeitado — não está no CSV de sensores autorizados");
+                    var tiposObj = msg.Payload.GetValueOrDefault("tipos_dados");
+                    List<string> tipos = new List<string>();
+                    if (tiposObj is JsonElement je && je.ValueKind == JsonValueKind.Array)
+                    {
+                        tipos = je.EnumerateArray()
+                            .Select(e => e.GetString() ?? "desconhecido")
+                            .ToList();
+                    }
+                    sensors[sensorId] = new SensorInfo
+                    {
+                        SensorId = sensorId,
+                        Estado = "pendente",
+                        Zona = "desconhecida",
+                        TiposDados = tipos,
+                        LastSync = DateTime.UtcNow
+                    };
+                    csvDirty = true;
+                    Log($"⏳ Sensor {sensorId} registado como pendente — aguarda aprovacao");
                 }
             }
             finally
@@ -154,6 +171,12 @@ namespace Gateway
             if (!sensors.ContainsKey(sensorId))
             {
                 Log($"[AVISO] Sensor {sensorId} nao registado - dados ignorados");
+                return;
+            }
+
+            if (sensors[sensorId].Estado != "ativo")
+            {
+                Log($"[AVISO] Sensor {sensorId} em estado '{sensors[sensorId].Estado}' - dados ignorados");
                 return;
             }
 

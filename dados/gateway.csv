@@ -1,6 +1,6 @@
-sensor-temperatura-01|ativo|A|[temperatura,humidade]|2026-06-05T01:10:29.6607642Z
-sensor-qualidade-01|ativo|B|[qualidade_ar,pm25,pm10]|2026-06-05T01:10:29.7154584Z
-sensor-ruido-01|ativo|A|[ruido]|2026-06-05T01:10:29.6878136Z
-sensor-luz-01|ativo|C|[luminosidade]|2026-06-05T01:10:29.6242313Z
-sensor-ambiente-01|ativo|B|[temperatura,humidade,qualidade_ar]|2026-06-05T01:10:29.7716206Z
-sensor-particulas-01|ativo|C|[pm25,pm10,ruido]|2026-06-05T01:10:29.7446190Z
+sensor-temperatura-01|ativo|A|[temperatura,humidade]|2026-06-05T01:13:33.0950636Z
+sensor-qualidade-01|ativo|B|[qualidade_ar,pm25,pm10]|2026-06-05T01:13:33.1241913Z
+sensor-ruido-01|ativo|A|[ruido]|2026-06-05T01:13:33.0688804Z
+sensor-luz-01|ativo|C|[luminosidade]|2026-06-05T01:13:33.1535836Z
+sensor-ambiente-01|ativo|B|[temperatura,humidade,qualidade_ar]|2026-06-05T01:13:33.1833421Z
+sensor-particulas-01|ativo|C|[pm25,pm10,ruido]|2026-06-05T01:13:33.0393981Z
