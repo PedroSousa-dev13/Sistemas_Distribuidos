@@ -4,9 +4,10 @@
 1. PRE-REQUISITOS
 ============================================
 
-- .NET 8.0 SDK ou superior (para compilar C#)
+- .NET 9.0 SDK (para compilar C#)
 - Python 3.x (para servicos Python)
-- RabbitMQ (servico ou Docker: docker run -d --hostname rabbitmq --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management)
+- RabbitMQ (servico ou Docker):
+  docker run -d --hostname rabbitmq --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:management
 
 ============================================
 2. INICIAR RABBITMQ
@@ -20,9 +21,13 @@ Ou executa o servico RabbitMQ localmente.
 3. COMPILAR TODOS OS PROJETOS C#
 ============================================
 
-Na pasta raiz:
+O projeto nao tem .sln. Compilar cada .csproj individualmente:
 
-dotnet build
+dotnet build src\SharedProtocol\SharedProtocol.csproj
+dotnet build src\Gateway\Gateway.csproj
+dotnet build src\Servidor\Servidor.csproj
+dotnet build src\Sensor\Sensor.csproj
+dotnet build src\DataStreamClient\DataStreamClient.csproj
 
 ============================================
 4. INICIAR COMPONENTES (ordem recomendada)
@@ -33,34 +38,44 @@ NOTA: Todos os comandos devem ser executados na pasta raiz do projeto.
 4.1. Servidor Central
 ---------------------
 cd src\Servidor
-dotnet run
+dotnet run [porto]
 
-O servidor TCP escuta na porta 6000.
+Exemplos:
+dotnet run
+dotnet run 7000
+
+O servidor TCP escuta na porta 7000 por defeito.
+Pode definir-se via env var: LISTEN_PORT=7000
+Porta anterior (6000) foi alterada.
 
 4.2. Gateway
 ------------
 cd src\Gateway
-dotnet run <ip_servidor> <caminho_csv> <rabbitmq_host> <rabbitmq_porta>
+dotnet run <server_endpoint> [caminho_csv] [rabbitmq_host] [rabbitmq_porta]
 
 Exemplo:
-dotnet run 127.0.0.1 ..\..\sensores.csv 127.0.0.1 5672
+dotnet run 127.0.0.1:7000 dados/gateway.csv 127.0.0.1 5672
 
-NOTA: O IP do servidor TCP deve ser o mesmo do passo 4.1.
-NOTA: Define-se ate 3 Gateways (ex: Gateway1, Gateway2, Gateway3).
-Cada gateway recebe dados de sensores de 2 zonas distintas.
-Para ver a zona de cada gateway, consulta a documentacao em docs/.
+Valores por defeito via env vars:
+- SERVER_ENDPOINT (ex: servidor:7000)
+- CSV_PATH (ex: /app/dados/gateway.csv)
+- RABBITMQ_HOST (ex: rabbitmq)
+- RABBITMQ_PORT (ex: 5672)
+
+O Gateway consome mensagens do RabbitMQ, invoca o Pre-Processamento
+via RPC (HTTP) e encaminha os dados tratados ao Servidor via TCP.
 
 4.3. Sensores
 -------------
 cd src\Sensor
-dotnet run <tipo_dado> <intervalo_segundos> <gateway_id> <ip_gateway> <porta_gateway>
+dotnet run <sensor_id> [rabbitmq_host] [rabbitmq_porta]
 
 Exemplos:
-dotnet run temperatura 5 SensorTemperatura1 127.0.0.1 5000
-dotnet run humidade 7 SensorHumidade1 127.0.0.1 5001
+dotnet run sensor-01
+dotnet run sensor-01 localhost 5672
 
-Define-se varios sensores de tipos diferentes. Cada sensor publica
-mensagens para o seu Gateway via RabbitMQ.
+O sensor publica medicoes diretamente no RabbitMQ (exchange topic).
+Nao usa TCP direto para o Gateway.
 
 4.4. Pre-Processamento
 -----------------------
@@ -68,6 +83,7 @@ cd src\PreProcessamento
 python servico.py
 
 O servico RPC escuta na porta 5001 (HTTP JSON).
+Pode definir-se via env var: PRE_PROCESSAMENTO_PORT=5001
 
 4.5. Analise
 ------------
@@ -75,6 +91,7 @@ cd src\Analise
 python servico.py
 
 O servico RPC escuta na porta 6001 (HTTP JSON).
+Pode definir-se via env var: ANALISE_PORT=6001
 
 4.6. Interface Web
 -------------------
@@ -82,6 +99,7 @@ cd src\Interface
 python main.py
 
 O servidor HTTP escuta na porta 8000.
+Pode definir-se via env var: INTERFACE_PORT=8000
 
 Abrir no browser: http://localhost:8000
 
@@ -100,28 +118,32 @@ A interface web permite:
 - Ver terminal de logs
 
 NOTA: Analise estatistica, padroes e previsao funcionam apenas para
-tipos de dado numericos (temperatura, humidade, ruido, pm10).
+tipos de dado numericos (temperatura, humidade, ruido, pm10, pm25).
 O tipo "imagem" mostra metadados mas nao suporta analise numerica.
 
 ============================================
 6. ARQUITETURA RESUMIDA
 ============================================
 
-Sensor --> RabbitMQ --> Gateway --> Servidor TCP --> SQLite
-                                    |
-                           Pre-Processamento (RPC porta 5001)
-                                    |
-                              Analise (RPC porta 6001)
-                                    |
-                           Interface Web (porta 8000)
+Sensor --> RabbitMQ --> Gateway --TCP--> Servidor --> SQLite
+                            |                |
+                     Pre-Processamento   Analise (RPC)
+                       (RPC 5001)         (RPC 6001)
+                                              |
+                                        Interface Web
+                                          (porta 8000)
 
-Os Gateways recebem dados dos sensores por zona:
-- Gateway1: zonas A, B (porta 5000)
-- Gateway2: zonas C, D (porta 5001)
-- Gateway3: zonas E (porta 5002) ou conforme configurado
+O Gateway invoca o Pre-Processamento (RPC HTTP) para uniformizar
+e validar os dados antes de os enviar ao Servidor.
 
-Cada sensor publica com routing key: zona.<zona>.<tipo>
-O Gateway consome: zona.*.# (todas as sub-rotas da sua zona)
+O Servidor invoca a Analise (RPC HTTP) para calcular estatisticas,
+deteccao de anomalias e previsoes.
+
+Cada sensor publica no RabbitMQ com routing key:
+  sensor.<sensor_id>.<tipo_dado>
+
+O Gateway consome todas as mensagens atraves de binding com
+routing key: sensor.*.#
 
 ============================================
 7. DOCKER (ALTERNATIVA)
@@ -129,9 +151,18 @@ O Gateway consome: zona.*.# (todas as sub-rotas da sua zona)
 
 Para executar tudo em contentores Docker:
 
-docker-compose up --build
+docker-compose up --build -d
 
 A interface web fica em http://localhost:8000
+
+Para parar:
+docker-compose down
+
+Para ver logs:
+docker-compose logs -f
+
+Servicos: rabbitmq, pre-processamento, analise, interface,
+gateway, servidor.
 
 NOTA: Alguns servicos Python usam apenas a biblioteca padrao.
 Nao necessitam de pip install.
@@ -141,9 +172,28 @@ Nao necessitam de pip install.
 ============================================
 
 Testes Python:
-cd tests
-python -m pytest test_pre_processamento.py -v
-python -m pytest test_analise_estatistica.py -v
+cd tests\Analise.Tests
+python -m pytest -v
 
 Testes C#:
-dotnet test
+dotnet test tests\Gateway.Tests\Gateway.Tests.csproj
+dotnet test tests\Servidor.Tests\Servidor.Tests.csproj
+
+Para correr todos os testes:
+dotnet test tests\Gateway.Tests\Gateway.Tests.csproj
+dotnet test tests\Servidor.Tests\Servidor.Tests.csproj
+cd tests\Analise.Tests && python -m pytest -v && cd ..\..
+
+============================================
+9. NOTAS IMPORTANTES
+============================================
+
+- Todos os projetos C# estao em .NET 9.0 (nao 8.0).
+- O servidor usa SQLite (ficheiro .db), nao ficheiros .txt.
+- O servidor tem rotação automatica de logs (5 MB).
+- O Gateway valida que o sensor existe no CSV antes de processar dados.
+- Todos os servicos no docker-compose tem healthchecks.
+- URLs de RPC configuradas via env vars (PRE_PROCESSAMENTO_HOST,
+  ANALISE_HOST).
+- Porta do Servidor mudou para 7000 (era 6000 nas versoes iniciais).
+- Gateways nao tem portas TCP fixas (5000/5001 removidas).
