@@ -86,9 +86,12 @@ services:
       - sensor-network
     restart: unless-stopped
     depends_on:
-      - rabbitmq
-      - servidor
-      - pre-processamento
+      rabbitmq:
+        condition: service_healthy
+      servidor:
+        condition: service_started
+      pre-processamento:
+        condition: service_started
     healthcheck:
       test: ["CMD", "pgrep", "-f", "Gateway.dll"]
       interval: 30s

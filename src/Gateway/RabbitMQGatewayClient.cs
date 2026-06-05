@@ -22,8 +22,6 @@ public class RabbitMQGatewayClient : IDisposable
     private CancellationTokenSource? _cts;
     private Task? _consumerTask;
 
-    private const int MaxDeliveryRetries = 3;
-
     private class QueuedMessage
     {
         public Mensagem Message { get; set; } = null!;
@@ -132,25 +130,18 @@ public class RabbitMQGatewayClient : IDisposable
                 autoDelete: false
             );
 
-            var args = new Dictionary<string, object?>
-            {
-                { "x-delivery-limit", MaxDeliveryRetries }
-            };
-
             await _channel.QueueDeclareAsync(
                 queue: $"gateway-measurements-{GatewayId}",
                 durable: true,
                 exclusive: false,
-                autoDelete: false,
-                arguments: args
+                autoDelete: false
             );
 
             await _channel.QueueDeclareAsync(
                 queue: $"gateway-control-{GatewayId}",
                 durable: true,
                 exclusive: false,
-                autoDelete: false,
-                arguments: args
+                autoDelete: false
             );
 
             await _channel.QueueBindAsync(
