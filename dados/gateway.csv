@@ -1,7 +1,7 @@
-sensor-temperatura-01|manutencao|A|[temperatura,humidade]|2026-06-05T02:07:04.6259306+00:00
-sensor-qualidade-01|manutencao|B|[qualidade_ar,pm25,pm10]|2026-06-05T02:07:04.7655160+00:00
-sensor-ruido-01|manutencao|A|[ruido]|2026-06-05T02:07:04.7381388+00:00
-sensor-luz-01|manutencao|C|[luminosidade]|2026-06-05T02:07:04.6515812+00:00
-sensor-ambiente-01|manutencao|B|[temperatura,humidade,qualidade_ar]|2026-06-05T02:07:04.7079337+00:00
-sensor-particulas-01|manutencao|C|[pm25,pm10,ruido]|2026-06-05T02:07:04.6793748+00:00
-sensor-01|manutencao|desconhecida|[temperatura,humidade,qualidade_ar,ruido,pm25,pm10,luminosidade,imagem]|2026-06-05T01:41:03.6213236+00:00
+sensor-temperatura-01|manutencao|A|[temperatura,humidade]|2026-06-05T02:43:34.9790339Z
+sensor-qualidade-01|manutencao|B|[qualidade_ar,pm25,pm10]|2026-06-05T02:43:34.9558091Z
+sensor-ruido-01|manutencao|A|[ruido]|2026-06-05T02:43:35.0031771Z
+sensor-luz-01|manutencao|C|[luminosidade]|2026-06-05T02:43:35.0514453Z
+sensor-ambiente-01|manutencao|B|[temperatura,humidade,qualidade_ar]|2026-06-05T02:43:35.0781650Z
+sensor-particulas-01|manutencao|C|[pm25,pm10,ruido]|2026-06-05T02:43:35.0286107Z
+sensor-01|manutencao|desconhecida|[temperatura,humidade,qualidade_ar,ruido,pm25,pm10,luminosidade,imagem]|2026-06-05T02:37:19.2168280Z
