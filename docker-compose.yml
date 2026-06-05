@@ -89,6 +89,12 @@ services:
       - rabbitmq
       - servidor
       - pre-processamento
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "Gateway.dll"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - SERVER_ENDPOINT=servidor:7000
       - CSV_PATH=/app/dados/gateway.csv
@@ -108,6 +114,12 @@ services:
     networks:
       - sensor-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/7000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     environment:
       - LISTEN_PORT=7000
       - ANALISE_HOST=analise

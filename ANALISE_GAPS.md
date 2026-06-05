@@ -79,7 +79,7 @@ Stack: **C# .NET 9.0** + **Python 3** + **RabbitMQ** + **Docker**
 | 2026-06-04 | C3: Testes C# | ✅ CORRIGIDO | Projetos atualizados de net8.0 para net9.0. 14/14 testes a passar (6 Gateway + 8 Servidor). |
 | 2026-06-04 | M1: URLs RPC hardcoded | ✅ CORRIGIDO | `PreProcessamentoClient` e `AnaliseClient` agora usam env vars `PRE_PROCESSAMENTO_HOST` e `ANALISE_HOST`. |
 | 2026-06-04 | M2: Validação args Servidor | ✅ CORRIGIDO | `int.TryParse` + validação de range (1-65535) adicionada. |
-| 2026-06-04 | M4: Healthchecks | ✅ CORRIGIDO | Todos os serviços no docker-compose têm healthchecks. |
+| 2026-06-05 | M4: Healthchecks | ✅ CORRIGIDO | Todos os 6 serviços (incluindo gateway + servidor) têm healthchecks. |
 | 2026-06-04 | L3: Validar sensor registado | ✅ CORRIGIDO | Gateway rejeita DATA de sensores não registados no CSV. |
 | 2026-06-04 | L4: Rotação de logs | ✅ CORRIGIDO | `LogHelper.Write()` com rotação automática a 5 MB. |
 | 2026-06-04 | L2: Dispose bloqueante | ✅ CORRIGIDO | `SensorClient.cs` (dead code TCP) removido. |
