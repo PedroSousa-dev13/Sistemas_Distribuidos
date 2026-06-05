@@ -10,7 +10,7 @@ from datetime import datetime
 
 PORT = int(os.environ.get("INTERFACE_PORT", "8000"))
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-DB_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dados", "sistemas_distribuidos.db"))
+DB_PATH = os.environ.get("DB_PATH") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "dados", "sistemas_distribuidos.db"))
 RPC_URL = os.environ.get("ANALISE_RPC_URL", "http://127.0.0.1:6001")
 
 MIME_TYPES = {

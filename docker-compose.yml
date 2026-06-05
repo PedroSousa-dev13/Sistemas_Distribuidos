@@ -61,6 +61,9 @@ services:
     container_name: interface-dashboard
     ports:
       - "8000:8000"
+    environment:
+      - DB_PATH=/app/dados/sistemas_distribuidos.db
+      - ANALISE_RPC_URL=http://analise:6001
     volumes:
       - ./dados:/app/dados
     networks:

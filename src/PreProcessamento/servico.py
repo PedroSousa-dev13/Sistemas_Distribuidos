@@ -157,9 +157,9 @@ if __name__ == "__main__":
         server.server_close()
 
     signal.signal(signal.SIGTERM, sinal_paragem)
-    signal.signal(signal.SIGINT, sinal_paragem)
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        sinal_paragem(None, None)
+        server.server_close()
+        print("\nServico de Pre-Processamento terminado.")
