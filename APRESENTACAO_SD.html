@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema Distribuído de Monitorização Ambiental — Apresentação</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+  --bg: #0a0e17;
+  --surface: #111827;
+  --surface2: #1a2236;
+  --accent: #6366f1;
+  --accent2: #818cf8;
+  --accent3: #a78bfa;
+  --green: #34d399;
+  --orange: #f59e0b;
+  --pink: #f472b6;
+  --cyan: #22d3ee;
+  --red: #ef4444;
+  --text: #e2e8f0;
+  --text2: #94a3b8;
+  --border: rgba(99,102,241,0.2);
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  height: 100vh;
+  width: 100vw;
+}
+
+.slide {
+  display: none;
+  width: 100vw;
+  height: 100vh;
+  padding: 50px 80px;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  overflow-y: auto;
+}
+
+.slide.active { display: flex; }
+
+/* ========== TITLE SLIDE ========== */
+.title-slide {
+  align-items: center;
+  text-align: center;
+  background: radial-gradient(ellipse at center, rgba(99,102,241,0.15) 0%, var(--bg) 70%);
+}
+.title-slide h1 {
+  font-size: 3rem; font-weight: 900;
+  background: linear-gradient(135deg, var(--accent2), var(--cyan), var(--green));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 12px; line-height: 1.15;
+}
+.title-slide h2 {
+  font-size: 1.5rem; font-weight: 400; color: var(--text2);
+  margin-bottom: 40px;
+}
+.title-slide .badge {
+  display: inline-block; padding: 8px 24px;
+  background: rgba(99,102,241,0.15); border: 1px solid var(--border);
+  border-radius: 24px; font-size: 0.95rem; color: var(--accent2);
+}
+
+/* ========== CONTENT SLIDES ========== */
+.slide h2 {
+  font-size: 2rem; font-weight: 800; margin-bottom: 8px;
+  color: var(--accent2);
+}
+.slide h3 {
+  font-size: 1.15rem; font-weight: 400; color: var(--text2);
+  margin-bottom: 28px;
+}
+.slide h4 {
+  font-size: 1rem; font-weight: 700; margin: 12px 0 6px;
+  color: var(--green);
+}
+
+/* Code blocks */
+.code-block {
+  background: #0d1117;
+  border: 1px solid rgba(99,102,241,0.15);
+  border-radius: 12px;
+  padding: 18px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  margin: 8px 0;
+  position: relative;
+  white-space: pre;
+}
+.code-block .lang {
+  position: absolute; top: 8px; right: 14px;
+  font-size: 0.65rem; color: var(--text2);
+  text-transform: uppercase; letter-spacing: 1px;
+}
+
+.kw { color: #c678dd; }
+.str { color: #98c379; }
+.cm { color: #5c6370; font-style: italic; }
+.fn { color: #61afef; }
+.num { color: #d19a66; }
+.typ { color: #e5c07b; }
+.ann { color: #56b6c2; }
+
+/* Grid layouts */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+}
+.card-accent { border-left: 3px solid var(--accent); }
+.card-green { border-left: 3px solid var(--green); }
+.card-orange { border-left: 3px solid var(--orange); }
+.card-pink { border-left: 3px solid var(--pink); }
+.card-cyan { border-left: 3px solid var(--cyan); }
+
+.card h4 { margin-top: 0; }
+.card p, .card ul { font-size: 0.85rem; color: var(--text2); line-height: 1.6; }
+.card ul { padding-left: 18px; }
+
+/* Architecture diagram */
+.arch-box {
+  display: inline-block;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 20px;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+  min-width: 110px;
+}
+.arch-box .port { font-size: 0.7rem; color: var(--text2); display: block; }
+.arch-box.csharp { border-color: var(--accent); color: var(--accent2); }
+.arch-box.python { border-color: var(--green); color: var(--green); }
+.arch-box.broker { border-color: var(--orange); color: var(--orange); }
+.arch-arrow { font-size: 1.3rem; color: var(--text2); margin: 0 8px; vertical-align: middle; }
+
+/* Table */
+.tbl {
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
+  margin: 10px 0;
+}
+.tbl th {
+  background: var(--surface2); padding: 10px 14px; text-align: left;
+  font-weight: 600; color: var(--accent2);
+  border-bottom: 2px solid var(--accent);
+}
+.tbl td {
+  padding: 8px 14px; border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: var(--text2);
+}
+.tbl tr:hover td { background: rgba(99,102,241,0.05); }
+
+/* Highlight badge */
+.hl {
+  display: inline-block; padding: 3px 10px; border-radius: 6px;
+  font-size: 0.7rem; font-weight: 600; letter-spacing: 0.5px;
+}
+.hl-purple { background: rgba(99,102,241,0.2); color: var(--accent2); }
+.hl-green { background: rgba(52,211,153,0.2); color: var(--green); }
+.hl-orange { background: rgba(245,158,11,0.2); color: var(--orange); }
+.hl-cyan { background: rgba(34,211,238,0.2); color: var(--cyan); }
+.hl-pink { background: rgba(244,114,182,0.2); color: var(--pink); }
+
+/* Bullet list */
+.bullets { list-style: none; padding: 0; }
+.bullets li {
+  padding: 6px 0 6px 22px; font-size: 0.88rem;
+  color: var(--text2); position: relative;
+}
+.bullets li::before {
+  content: '▸'; position: absolute; left: 0;
+  color: var(--accent2); font-weight: 700;
+}
+
+/* Footer nav */
+.nav {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 40px;
+  background: rgba(10,14,23,0.85);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(99,102,241,0.1);
+  z-index: 999;
+}
+.nav button {
+  background: rgba(99,102,241,0.15);
+  border: 1px solid var(--border);
+  color: var(--accent2);
+  padding: 8px 24px; border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.85rem; cursor: pointer;
+  transition: all 0.2s;
+}
+.nav button:hover { background: rgba(99,102,241,0.3); }
+.nav .counter { font-size: 0.8rem; color: var(--text2); }
+
+/* Decision callout */
+.decision {
+  background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(34,211,238,0.05));
+  border: 1px solid rgba(99,102,241,0.2);
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 10px 0;
+}
+.decision .label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--cyan); margin-bottom: 6px;
+}
+.decision p { font-size: 0.82rem; color: var(--text2); line-height: 1.5; }
+
+/* Flow diagram */
+.flow {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 6px; margin: 14px 0;
+}
+.flow-step {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.flow-arrow { color: var(--accent2); font-size: 1.1rem; }
+
+.small { font-size: 0.78rem; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== SLIDE 1: TITLE ===================== -->
+<div class="slide title-slide active" id="s1">
+  <h1>Sistema Distribuído de<br>Monitorização Ambiental Urbana</h1>
+  <h2>Projeto de Sistemas Distribuídos · 2025/2026</h2>
+  <div style="margin-top: 20px;">
+    <span class="badge">6 Microserviços · Docker · RabbitMQ · TCP · RPC</span>
+  </div>
+  <div style="margin-top: 30px; display: flex; gap: 18px; justify-content: center;">
+    <span class="hl hl-purple">C# .NET 9.0</span>
+    <span class="hl hl-green">Python 3</span>
+    <span class="hl hl-orange">RabbitMQ 3.13</span>
+    <span class="hl hl-cyan">SQLite</span>
+    <span class="hl hl-pink">Docker Compose</span>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 2: ARQUITETURA GERAL ===================== -->
+<div class="slide" id="s2">
+  <h2>📐 Arquitetura Geral</h2>
+  <h3>6 microserviços orquestrados em Docker Compose numa rede interna</h3>
+
+  <div style="text-align:center; margin: 20px 0;">
+    <div class="flow">
+      <div class="flow-step" style="border-color:var(--accent);">🔬 Sensor<br><small style="color:var(--text2)">C# · Pub/Sub</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step" style="border-color:var(--orange);">📮 RabbitMQ<br><small style="color:var(--text2)">AMQP · 5672</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step" style="border-color:var(--accent);">🌐 Gateway<br><small style="color:var(--text2)">C# · Consumer</small></div>
+      <div class="flow-arrow">→ TCP →</div>
+      <div class="flow-step" style="border-color:var(--accent);">🖥️ Servidor<br><small style="color:var(--text2)">C# · 7000</small></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step" style="border-color:var(--cyan);">💾 SQLite<br><small style="color:var(--text2)">Persistência</small></div>
+    </div>
+    <div style="margin-top: 10px; display: flex; justify-content: center; gap: 30px;">
+      <div style="text-align: center;">
+        <div class="flow-arrow">↕ RPC</div>
+        <div class="flow-step" style="border-color:var(--green);">🔧 PreProc<br><small style="color:var(--text2)">Python · 5001</small></div>
+      </div>
+      <div style="text-align: center;">
+        <div class="flow-arrow">↕ RPC</div>
+        <div class="flow-step" style="border-color:var(--green);">📊 Análise<br><small style="color:var(--text2)">Python · 6001</small></div>
+      </div>
+      <div style="text-align: center;">
+        <div class="flow-arrow">↕ Query</div>
+        <div class="flow-step" style="border-color:var(--green);">🖥️ Interface<br><small style="color:var(--text2)">Python · 8000</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-3" style="margin-top: 18px;">
+    <div class="card card-accent">
+      <h4 style="color:var(--accent2)">3 Paradigmas</h4>
+      <ul class="bullets small">
+        <li><strong>Pub/Sub</strong> — Sensor → RabbitMQ</li>
+        <li><strong>TCP Sockets</strong> — Gateway → Servidor</li>
+        <li><strong>RPC HTTP</strong> — Gateway/Servidor → Python</li>
+      </ul>
+    </div>
+    <div class="card card-green">
+      <h4 style="color:var(--green)">2 Linguagens</h4>
+      <ul class="bullets small">
+        <li><strong>C# .NET 9</strong> — Performance e rede</li>
+        <li><strong>Python 3</strong> — Ciência de dados e web</li>
+      </ul>
+    </div>
+    <div class="card card-pink">
+      <h4 style="color:var(--pink)">Docker Compose</h4>
+      <ul class="bullets small">
+        <li>Rede bridge isolada</li>
+        <li>Healthchecks em todos os serviços</li>
+        <li>Um comando para arrancar tudo</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 3: DECISÃO MICROSERVIÇOS ===================== -->
+<div class="slide" id="s3">
+  <h2>🏗️ Porquê Microserviços?</h2>
+  <h3>Decisão arquitetural: Microserviços vs Monolito</h3>
+
+  <div class="grid-2">
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão de Design</div>
+        <p><strong>Microserviços</strong> foram escolhidos porque o projeto exige <strong>duas linguagens</strong> (C# + Python), e cada serviço tem requisitos distintos de performance e bibliotecas.</p>
+      </div>
+      <table class="tbl" style="margin-top: 14px;">
+        <tr><th>Vantagem</th><th>Exemplo no Projeto</th></tr>
+        <tr><td>Separação de responsabilidades</td><td>Sensor só publica, Análise só calcula</td></tr>
+        <tr><td>Tecnologias mistas</td><td>C# para rede, Python para NumPy/SciPy</td></tr>
+        <tr><td>Isolamento de falhas</td><td>Se Análise cair, Servidor continua</td></tr>
+        <tr><td>Deploy independente</td><td>Atualizar Python sem recompilar C#</td></tr>
+        <tr><td>Testabilidade</td><td>14 testes C# + 25 testes Python</td></tr>
+      </table>
+    </div>
+    <div>
+      <h4 style="color: var(--red);">Porquê NÃO Monolito?</h4>
+      <ul class="bullets">
+        <li>Não permite C# + Python na mesma app</li>
+        <li>Falha na Análise derrubaria todo o sistema</li>
+        <li>Escalar = duplicar tudo (desperdício)</li>
+      </ul>
+      <h4 style="color: var(--red); margin-top: 14px;">Porquê NÃO Kubernetes?</h4>
+      <ul class="bullets">
+        <li>Exagerado para 6 serviços académicos</li>
+        <li>Kubernetes exige clusters, pods, ingress</li>
+        <li>Docker Compose resolve com 1 ficheiro</li>
+      </ul>
+      <div class="code-block" style="margin-top: 14px; font-size: 0.68rem;">
+<span class="lang">bash</span>
+<span class="cm"># Arrancar TODO o sistema com 1 comando</span>
+<span class="fn">docker-compose</span> up --build -d
+
+<span class="cm"># Dashboard: http://localhost:8000</span>
+<span class="cm"># RabbitMQ:  http://localhost:15672</span>
+</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 4: RABBITMQ & AMQP ===================== -->
+<div class="slide" id="s4">
+  <h2>📮 RabbitMQ & Protocolo AMQP</h2>
+  <h3>Comunicação assíncrona Sensor → Gateway via message broker</h3>
+
+  <div class="grid-2">
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão: Porquê Topic Exchange?</div>
+        <p>Topic exchanges permitem routing flexível com wildcards. O Gateway subscreve <code>sensor.*.#</code> e recebe todas as medições de qualquer sensor, sem precisar de saber quantos existem.</p>
+      </div>
+      <div class="code-block" style="font-size: 0.66rem;">
+<span class="lang">Routing Keys</span>
+<span class="cm">// Exchange: sensor-measurements (Topic, durable)</span>
+
+<span class="str">sensor.sensor-01.temperatura</span>  <span class="cm">→ medição específica</span>
+<span class="str">zona.A.humidade</span>              <span class="cm">→ por zona geográfica</span>
+
+<span class="cm">// Gateway subscreve com wildcards:</span>
+<span class="str">sensor.*.#</span>   <span class="cm">→ TODAS as medições</span>
+<span class="str">zona.*.#</span>     <span class="cm">→ todas por zona</span>
+</div>
+    </div>
+    <div>
+      <h4 style="color:var(--orange)">Código: Sensor publica no RabbitMQ</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — RabbitMQSensorClient.cs</span>
+<span class="kw">var</span> properties = <span class="kw">new</span> <span class="typ">BasicProperties</span>
+{
+    ContentType = <span class="str">"application/json"</span>,
+    DeliveryMode = <span class="typ">DeliveryModes</span>.<span class="fn">Persistent</span>,  <span class="cm">// disco!</span>
+    Timestamp = <span class="kw">new</span> <span class="typ">AmqpTimestamp</span>(...)
+};
+
+<span class="kw">await</span> _channel.<span class="fn">BasicPublishAsync</span>(
+    exchange: <span class="str">"sensor-measurements"</span>,
+    routingKey: <span class="str">$"sensor.{SensorId}.{tipoDado}"</span>,
+    mandatory: <span class="num">false</span>,
+    basicProperties: properties,
+    body: body  <span class="cm">// JSON UTF-8</span>
+);</div>
+
+      <h4 style="color:var(--orange); margin-top: 10px;">Decisões Chave:</h4>
+      <ul class="bullets small">
+        <li><strong>DeliveryMode Persistent</strong> — medições sobrevivem a reinicios</li>
+        <li><strong>autoAck: false</strong> — ACK manual após processar</li>
+        <li><strong>Heartbeat: 30s</strong> — keep-alive da ligação</li>
+        <li><strong>AutomaticRecovery: true</strong> — reconexão automática</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 5: GATEWAY CONSUMER ===================== -->
+<div class="slide" id="s5">
+  <h2>🌐 Gateway — Consumer & Orquestrador</h2>
+  <h3>Consome do RabbitMQ, invoca PreProcessamento (RPC), envia ao Servidor (TCP)</h3>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--accent2)">Código: Declarar Queues e Bindings</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — RabbitMQGatewayClient.cs</span>
+<span class="cm">// Queue com nome único por gateway</span>
+<span class="kw">await</span> _channel.<span class="fn">QueueDeclareAsync</span>(
+    queue: <span class="str">$"gateway-measurements-{GatewayId}"</span>,
+    durable: <span class="num">true</span>,
+    exclusive: <span class="num">false</span>,
+    autoDelete: <span class="num">false</span>
+);
+
+<span class="cm">// Bind: receber TODAS as medições</span>
+<span class="kw">await</span> _channel.<span class="fn">QueueBindAsync</span>(
+    queue: <span class="str">$"gateway-measurements-{GatewayId}"</span>,
+    exchange: <span class="str">"sensor-measurements"</span>,
+    routingKey: <span class="str">"sensor.*.#"</span>   <span class="cm">// wildcard!</span>
+);</div>
+
+      <h4 style="color:var(--accent2); margin-top: 10px;">Código: ACK manual após processar</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — RabbitMQGatewayClient.cs</span>
+<span class="cm">// Consumidor com autoAck: false (seguro)</span>
+<span class="kw">await</span> _channel.<span class="fn">BasicConsumeAsync</span>(
+    queue: <span class="str">$"gateway-measurements-{GatewayId}"</span>,
+    autoAck: <span class="num">false</span>,  <span class="cm">// ACK manual!</span>
+    consumer: consumer1
+);
+
+<span class="cm">// Só fazemos ACK após processamento</span>
+<span class="kw">await</span> _channel!.<span class="fn">BasicAckAsync</span>(
+    queued.DeliveryTag, multiple: <span class="num">false</span>
+);</div>
+    </div>
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão: ConcurrentQueue interna</div>
+        <p>As mensagens do RabbitMQ são colocadas numa <code>ConcurrentQueue&lt;QueuedMessage&gt;</code> interna. Um worker separado processa sequencialmente, evitando race conditions no envio TCP.</p>
+      </div>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — Processamento sequencial</span>
+<span class="kw">private async</span> Task <span class="fn">ProcessarFilaAsync</span>(CancellationToken ct)
+{
+    <span class="kw">while</span> (!ct.IsCancellationRequested)
+    {
+        <span class="kw">if</span> (_messageQueue.<span class="fn">TryDequeue</span>(<span class="kw">out var</span> queued))
+        {
+            <span class="kw">await</span> OnMensagemRecebida.Invoke(
+                <span class="kw">this</span>, queued.Message);
+            <span class="kw">await</span> _channel!.<span class="fn">BasicAckAsync</span>(
+                queued.DeliveryTag, multiple: <span class="num">false</span>);
+        }
+        <span class="kw">else</span>
+            <span class="kw">await</span> Task.Delay(<span class="num">100</span>, ct);
+    }
+}</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 6: TCP SOCKETS ===================== -->
+<div class="slide" id="s6">
+  <h2>🔌 Sockets TCP — Protocolo Customizado</h2>
+  <h3>Comunicação Gateway → Servidor via TCP com protocolo JSON+newline</h3>
+
+  <div class="grid-2">
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão: TCP puro vs HTTP</div>
+        <p>HTTP adiciona ~200 bytes de headers por medição. Com payloads de ~150 bytes, os headers representariam >50% do tráfego. TCP puro elimina esse overhead com parsing trivial: <code>ReadLine()</code> até ao <code>\n</code>.</p>
+      </div>
+
+      <h4 style="color:var(--cyan)">Protocolo definido:</h4>
+      <div class="code-block" style="font-size: 0.65rem;">
+<span class="lang">Protocolo TCP</span>
+<span class="cm">// Formato: JSON + newline (\n)</span>
+<span class="cm">// Encoding: UTF-8</span>
+<span class="cm">// Tamanho máximo: 10 MB por linha</span>
+
+<span class="cm">// Gateway → Servidor:</span>
+{<span class="str">"tipo"</span>:<span class="str">"DATA"</span>,<span class="str">"sensor_id"</span>:<span class="str">"sensor-01"</span>,
+ <span class="str">"payload"</span>:{<span class="str">"tipo_dado"</span>:<span class="str">"temperatura"</span>,<span class="str">"valor"</span>:<span class="num">23.5</span>},
+ <span class="str">"timestamp"</span>:<span class="str">"2025-06-05T10:30:00Z"</span>}<span class="kw">\n</span>
+
+<span class="cm">// Servidor → Gateway:</span>
+{<span class="str">"tipo"</span>:<span class="str">"DATA_ACK"</span>,<span class="str">"sensor_id"</span>:<span class="str">"sensor-01"</span>,
+ <span class="str">"payload"</span>:{},<span class="str">"timestamp"</span>:<span class="str">"..."</span>}<span class="kw">\n</span></div>
+    </div>
+    <div>
+      <h4 style="color:var(--cyan)">Código: Servidor TCP multi-threaded</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — Servidor/Program.cs</span>
+<span class="typ">TcpListener</span> listener = <span class="kw">new</span>(IPAddress.Any, listenPort);
+listener.Start();
+
+<span class="kw">while</span> (<span class="num">true</span>)
+{
+    <span class="typ">TcpClient</span> client = listener.<span class="fn">AcceptTcpClient</span>();
+
+    gatewayCountMutex.<span class="fn">WaitOne</span>();  <span class="cm">// thread-safe</span>
+    gatewayCount++;
+    <span class="kw">int</span> num = gatewayCount;
+    gatewayCountMutex.<span class="fn">ReleaseMutex</span>();
+
+    <span class="cm">// Thread dedicada por Gateway</span>
+    <span class="typ">Thread</span> t = <span class="kw">new</span>(() => <span class="fn">HandleGateway</span>(client, num))
+    { IsBackground = <span class="num">true</span> };
+    t.Start();
+}</div>
+
+      <h4 style="color:var(--cyan); margin-top: 8px;">Tipos de Mensagem</h4>
+      <table class="tbl">
+        <tr><th>Tipo</th><th>Função</th></tr>
+        <tr><td><code>DATA</code></td><td>Envio de medição</td></tr>
+        <tr><td><code>DATA_ACK</code></td><td>Confirmação do servidor</td></tr>
+        <tr><td><code>REGISTER</code></td><td>Registo de sensor</td></tr>
+        <tr><td><code>HEARTBEAT</code></td><td>Keep-alive</td></tr>
+        <tr><td><code>ERROR</code></td><td>Erro genérico</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 7: RPC ===================== -->
+<div class="slide" id="s7">
+  <h2>📞 RPC — Remote Procedure Call</h2>
+  <h3>Gateway → PreProcessamento (Python) · Servidor → Análise (Python)</h3>
+
+  <div class="grid-2">
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão: HTTP/JSON vs gRPC</div>
+        <p>Escolhemos <strong>HTTP/JSON</strong> pela simplicidade: trivial em C# e Python, debugável com curl, sem geração de código .proto. gRPC seria evolução futura para escala.</p>
+      </div>
+
+      <h4 style="color:var(--green)">Código: RPC Client com Retry</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — PreProcessamentoClient.cs</span>
+<span class="kw">private static async</span> Task&lt;T?&gt; <span class="fn">ComRetryAsync</span>&lt;T&gt;(
+    Func&lt;Task&lt;T?&gt;&gt; action, <span class="kw">int</span> maxRetries = <span class="num">2</span>)
+{
+    <span class="kw">for</span> (<span class="kw">int</span> i = <span class="num">0</span>; ; i++)
+    {
+        <span class="kw">try</span> { <span class="kw">return await</span> action(); }
+        <span class="kw">catch</span> (Exception ex) <span class="kw">when</span> (i < maxRetries)
+        {
+            <span class="cm">// Backoff exponencial: 1s, 2s, 3s...</span>
+            <span class="kw">await</span> Task.Delay(<span class="num">1000</span> * (i + <span class="num">1</span>));
+        }
+        <span class="kw">catch</span> { <span class="kw">return null</span>; }
+    }
+}</div>
+    </div>
+    <div>
+      <h4 style="color:var(--green)">Código: Servidor Python (Análise)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Python — Analise/servico.py</span>
+<span class="kw">class</span> <span class="typ">RPCHandler</span>(BaseHTTPRequestHandler):
+    <span class="kw">def</span> <span class="fn">do_POST</span>(self):
+        path = urlparse(self.path).path
+
+        <span class="kw">if</span> path == <span class="str">"/rpc/estatisticas"</span>:
+            self.<span class="fn">_estatisticas</span>(dados)
+        <span class="kw">elif</span> path == <span class="str">"/rpc/padroes"</span>:
+            self.<span class="fn">_padroes</span>(dados)
+        <span class="kw">elif</span> path == <span class="str">"/rpc/previsao"</span>:
+            self.<span class="fn">_previsao</span>(dados)</div>
+
+      <h4 style="color:var(--green); margin-top: 8px;">Endpoints RPC</h4>
+      <table class="tbl">
+        <tr><th>Rota</th><th>Serviço</th><th>Função</th></tr>
+        <tr><td><code>/rpc/uniformizar</code></td><td>PreProc</td><td>Normalizar valores</td></tr>
+        <tr><td><code>/rpc/validar</code></td><td>PreProc</td><td>Verificar limites</td></tr>
+        <tr><td><code>/rpc/estatisticas</code></td><td>Análise</td><td>Média, mediana, desvio</td></tr>
+        <tr><td><code>/rpc/padroes</code></td><td>Análise</td><td>Anomalias (Z-Score)</td></tr>
+        <tr><td><code>/rpc/previsao</code></td><td>Análise</td><td>Regressão linear</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 8: SHARED PROTOCOL ===================== -->
+<div class="slide" id="s8">
+  <h2>📦 SharedProtocol — Biblioteca Partilhada</h2>
+  <h3>Garante consistência de mensagens entre todos os componentes C#</h3>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--accent2)">Código: Modelo de Dados (Mensagem.cs)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — SharedProtocol/Mensagem.cs</span>
+<span class="kw">public class</span> <span class="typ">Mensagem</span>
+{
+    [<span class="ann">JsonPropertyName</span>(<span class="str">"tipo"</span>)]
+    <span class="kw">public string</span> Tipo { <span class="kw">get</span>; <span class="kw">init</span>; }
+
+    [<span class="ann">JsonPropertyName</span>(<span class="str">"sensor_id"</span>)]
+    <span class="kw">public string</span> SensorId { <span class="kw">get</span>; <span class="kw">init</span>; }
+
+    [<span class="ann">JsonPropertyName</span>(<span class="str">"payload"</span>)]
+    <span class="kw">public</span> Dictionary&lt;<span class="kw">string</span>, <span class="kw">object</span>&gt; Payload { <span class="kw">get</span>; <span class="kw">init</span>; }
+
+    [<span class="ann">JsonPropertyName</span>(<span class="str">"timestamp"</span>)]
+    <span class="kw">public string</span> Timestamp { <span class="kw">get</span>; <span class="kw">init</span>; }
+}</div>
+
+      <h4 style="color:var(--accent2); margin-top: 10px;">Factory Methods</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — Factory Pattern</span>
+Mensagem.<span class="fn">CriarData</span>(<span class="str">"sensor-01"</span>, <span class="str">"temp"</span>, <span class="num">23.5</span>);
+Mensagem.<span class="fn">CriarRegister</span>(<span class="str">"sensor-01"</span>, tiposDados);
+Mensagem.<span class="fn">CriarHeartbeat</span>(<span class="str">"sensor-01"</span>);
+Mensagem.<span class="fn">CriarDataAck</span>(<span class="str">"sensor-01"</span>);
+Mensagem.<span class="fn">CriarError</span>(<span class="str">"sensor-01"</span>, code, desc);</div>
+    </div>
+    <div>
+      <h4 style="color:var(--accent2)">Código: Tipos de Mensagem</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — SharedProtocol/TiposMensagem.cs</span>
+<span class="kw">public static class</span> <span class="typ">TiposMensagem</span>
+{
+    <span class="kw">public const string</span> REGISTER     = <span class="str">"REGISTER"</span>;
+    <span class="kw">public const string</span> REGISTER_OK  = <span class="str">"REGISTER_OK"</span>;
+    <span class="kw">public const string</span> DATA         = <span class="str">"DATA"</span>;
+    <span class="kw">public const string</span> DATA_ACK     = <span class="str">"DATA_ACK"</span>;
+    <span class="kw">public const string</span> HEARTBEAT    = <span class="str">"HEARTBEAT"</span>;
+    <span class="kw">public const string</span> ERROR        = <span class="str">"ERROR"</span>;
+
+    <span class="kw">public static readonly</span> HashSet&lt;<span class="kw">string</span>&gt; Validos = ...;
+
+    <span class="kw">public static bool</span> <span class="fn">RequerSensorId</span>(<span class="kw">string</span> tipo)
+        => tipo == DATA || tipo == HEARTBEAT
+           || tipo == REGISTER;
+}</div>
+
+      <div class="decision" style="margin-top: 14px;">
+        <div class="label">💡 Decisão: SharedProtocol como .dll</div>
+        <p>Em vez de copiar classes entre projetos, o SharedProtocol é um assembly partilhado. Uma alteração no formato da mensagem propaga automaticamente para Sensor, Gateway e Servidor — princípio <strong>DRY</strong>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 9: PRE-PROCESSAMENTO E ANÁLISE ===================== -->
+<div class="slide" id="s9">
+  <h2>🔧 Pré-Processamento & 📊 Análise</h2>
+  <h3>Serviços Python: uniformização, validação, estatísticas e deteção de anomalias</h3>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--green)">Pré-Processamento (porta 5001)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Python — PreProcessamento/servico.py</span>
+LIMITES = {
+    <span class="str">"temperatura"</span>: {<span class="str">"min"</span>: <span class="num">-50</span>, <span class="str">"max"</span>: <span class="num">100</span>, <span class="str">"unidade"</span>: <span class="str">"celsius"</span>},
+    <span class="str">"humidade"</span>:    {<span class="str">"min"</span>: <span class="num">0</span>,   <span class="str">"max"</span>: <span class="num">100</span>, <span class="str">"unidade"</span>: <span class="str">"percentagem"</span>},
+    <span class="str">"pm25"</span>:        {<span class="str">"min"</span>: <span class="num">0</span>,   <span class="str">"max"</span>: <span class="num">1000</span>, <span class="str">"unidade"</span>: <span class="str">"ug/m3"</span>},
+    <span class="str">"ruido"</span>:       {<span class="str">"min"</span>: <span class="num">0</span>,   <span class="str">"max"</span>: <span class="num">200</span>, <span class="str">"unidade"</span>: <span class="str">"dB"</span>},
+    ...
+}
+
+<span class="kw">def</span> <span class="fn">uniformizar_temperatura</span>(valor, formato):
+    <span class="kw">if</span> formato == <span class="str">"FAHRENHEIT"</span>:
+        <span class="kw">return</span> (valor - <span class="num">32</span>) * <span class="num">5.0</span> / <span class="num">9.0</span>
+    <span class="kw">if</span> formato == <span class="str">"KELVIN"</span>:
+        <span class="kw">return</span> valor - <span class="num">273.15</span>
+    <span class="kw">return</span> valor</div>
+    </div>
+    <div>
+      <h4 style="color:var(--green)">Análise — Deteção de Anomalias (Z-Score)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Python — Analise/analise_estatistica.py</span>
+<span class="kw">def</span> <span class="fn">detetar_anomalias</span>(valores, limiar=<span class="num">2.0</span>):
+    media = sum(valores) / n
+    desvio = math.sqrt(variancia)
+
+    anomalias = []
+    <span class="kw">for</span> i, v <span class="kw">in</span> enumerate(valores):
+        z_score = (v - media) / desvio
+        <span class="kw">if</span> abs(z_score) > limiar:
+            nivel = <span class="str">"critico"</span> <span class="kw">if</span> abs(z_score) > <span class="num">3.0</span>
+                    <span class="kw">else</span> <span class="str">"moderado"</span>
+            anomalias.append({
+                <span class="str">"valor"</span>: v,
+                <span class="str">"z_score"</span>: z_score,
+                <span class="str">"descricao"</span>: f<span class="str">"({nivel})"</span>
+            })</div>
+
+      <h4 style="color:var(--green); margin-top: 8px;">Previsão — Regressão Linear</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Python — Analise/analise_estatistica.py</span>
+<span class="kw">def</span> <span class="fn">prever_proximo</span>(valores, janela=<span class="num">5</span>):
+    <span class="cm"># Regressão linear: y = mx + b</span>
+    inclinacao = (n*sum_xy - sum_x*sum_y) / denom
+    tendencia = <span class="str">"subindo"</span> <span class="kw">if</span> inclinacao > <span class="num">0.01</span>
+                <span class="kw">else</span> <span class="str">"descendo"</span> <span class="kw">if</span> < <span class="num">-0.01</span>
+                <span class="kw">else</span> <span class="str">"estavel"</span>
+    risco = <span class="str">"alto"</span>/<span class="str">"medio"</span>/<span class="str">"baixo"</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 10: PERSISTÊNCIA SQLITE ===================== -->
+<div class="slide" id="s10">
+  <h2>💾 Persistência — SQLite</h2>
+  <h3>Base de dados embebida no Servidor com thread-safety via lock</h3>
+
+  <div class="grid-2">
+    <div>
+      <div class="decision">
+        <div class="label">💡 Decisão: SQLite vs PostgreSQL/MongoDB</div>
+        <p>SQLite é embutido (sem container extra), zero configuração, e suporta 100K+ writes/segundo. Com 6 sensores (~1000 medições/hora), não há necessidade de um SGBD dedicado.</p>
+      </div>
+
+      <h4 style="color:var(--cyan)">Código: Schema da BD</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — ServidorMonitor.cs</span>
+<span class="kw">string</span> createSql = <span class="str">@"
+    CREATE TABLE IF NOT EXISTS medicoes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sensor_id TEXT NOT NULL,
+        tipo_dado TEXT NOT NULL,
+        valor REAL NOT NULL,
+        timestamp TEXT NOT NULL,
+        payload_json TEXT
+    );"</span>;
+
+<span class="kw">string</span> createAnalises = <span class="str">@"
+    CREATE TABLE IF NOT EXISTS analises (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sensor_id TEXT NOT NULL,
+        tipo_dado TEXT NOT NULL,
+        tipo_analise TEXT NOT NULL,
+        resultado TEXT NOT NULL,
+        timestamp TEXT NOT NULL
+    );"</span>;</div>
+    </div>
+    <div>
+      <h4 style="color:var(--cyan)">Código: Persistir medição (thread-safe)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">C# — ServidorMonitor.cs</span>
+<span class="kw">public bool</span> <span class="fn">PersistirMedicao</span>(...) {
+    <span class="kw">lock</span> (_dbLock)  <span class="cm">// thread-safe!</span>
+    {
+        <span class="kw">using var</span> conn = <span class="kw">new</span> <span class="typ">SqliteConnection</span>(_cs);
+        conn.Open();
+
+        <span class="kw">using var</span> cmd = <span class="kw">new</span> <span class="typ">SqliteCommand</span>(<span class="str">@"
+            INSERT INTO medicoes
+            (sensor_id, tipo_dado, valor, timestamp)
+            VALUES ($sid, $td, $val, $ts);"</span>, conn);
+
+        cmd.Parameters.AddWithValue(<span class="str">"$sid"</span>, sensorId);
+        cmd.Parameters.AddWithValue(<span class="str">"$td"</span>, tipoDado);
+        cmd.Parameters.AddWithValue(<span class="str">"$val"</span>, valor);
+        cmd.Parameters.AddWithValue(<span class="str">"$ts"</span>, timestamp);
+        cmd.ExecuteNonQuery();
+    }
+}</div>
+
+      <div class="decision" style="margin-top: 14px;">
+        <div class="label">💡 Concorrência</div>
+        <p><strong>Mutex</strong> no Servidor para gatewayCount e gatewayMap. <strong>lock</strong> no ServidorMonitor para escrita na BD. Garante integridade ACID mesmo com múltiplas Gateways simultâneas.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 11: DOCKER COMPOSE ===================== -->
+<div class="slide" id="s11">
+  <h2>🐳 Docker Compose — Orquestração</h2>
+  <h3>6 serviços, rede isolada, healthchecks, dependências automáticas</h3>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--pink)">Código: docker-compose.yml (excertos)</h4>
+      <div class="code-block" style="font-size: 0.6rem;">
+<span class="lang">YAML — docker-compose.yml</span>
+<span class="typ">gateway</span>:
+  depends_on:
+    rabbitmq:
+      condition: <span class="fn">service_healthy</span>  <span class="cm"># espera healthcheck!</span>
+    servidor:
+      condition: service_started
+    pre-processamento:
+      condition: service_started
+  environment:
+    - SERVER_ENDPOINT=<span class="str">servidor:7000</span>
+    - RABBITMQ_HOST=<span class="str">rabbitmq</span>  <span class="cm"># nome DNS interno</span>
+    - PRE_PROCESSAMENTO_HOST=<span class="str">pre-processamento</span>
+  healthcheck:
+    test: [<span class="str">"CMD"</span>, <span class="str">"sh"</span>, <span class="str">"-c"</span>,
+           <span class="str">"grep -q Gateway /proc/1/cmdline"</span>]
+    interval: <span class="num">30s</span></div>
+    </div>
+    <div>
+      <h4 style="color:var(--pink)">Código: Healthchecks</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">YAML — Healthchecks por serviço</span>
+<span class="cm"># RabbitMQ</span>
+test: [<span class="str">"CMD"</span>, <span class="str">"rabbitmq-diagnostics"</span>, <span class="str">"-q"</span>, <span class="str">"ping"</span>]
+
+<span class="cm"># Python (PreProc, Análise, Interface)</span>
+test: [<span class="str">"CMD"</span>, <span class="str">"python"</span>, <span class="str">"-c"</span>,
+  <span class="str">"import urllib.request; print(
+   urllib.request.urlopen(
+     'http://127.0.0.1:5001/health').status)"</span>]
+
+<span class="cm"># C# (Gateway, Servidor)</span>
+test: [<span class="str">"CMD"</span>, <span class="str">"sh"</span>, <span class="str">"-c"</span>,
+  <span class="str">"grep -q Gateway /proc/1/cmdline"</span>]</div>
+
+      <div class="decision" style="margin-top: 14px;">
+        <div class="label">💡 Decisão chave</div>
+        <p>O Gateway tem <code>condition: service_healthy</code> no RabbitMQ — só arranca quando o broker está realmente funcional, não apenas "a correr". Isto evita erros de ligação no arranque.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 12: FLUXO COMPLETO ===================== -->
+<div class="slide" id="s12">
+  <h2>🔄 Fluxo de Dados Completo</h2>
+  <h3>Da medição do sensor até ao dashboard web — passo a passo</h3>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 10px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-purple" style="min-width: 24px; text-align:center;">1</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>Sensor</strong> publica medição no <strong>RabbitMQ</strong> (exchange topic, routing key: <code>sensor.{id}.{tipo}</code>)
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-orange" style="min-width: 24px; text-align:center;">2</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>RabbitMQ</strong> encaminha via routing key match (<code>sensor.*.#</code>) para a queue do <strong>Gateway</strong>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-green" style="min-width: 24px; text-align:center;">3</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>Gateway</strong> invoca <strong>Pré-Processamento</strong> via <strong>RPC HTTP</strong> → uniformizar + validar (com retry + backoff)
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-cyan" style="min-width: 24px; text-align:center;">4</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>Gateway</strong> envia dados tratados ao <strong>Servidor</strong> via <strong>TCP socket</strong> (JSON+newline). Aguarda DATA_ACK.
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-pink" style="min-width: 24px; text-align:center;">5</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>Servidor</strong> persiste em <strong>SQLite</strong> (tabela <code>medicoes</code>) + invoca <strong>Análise</strong> via RPC se necessário
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span class="hl hl-purple" style="min-width: 24px; text-align:center;">6</span>
+      <div class="card" style="flex:1; padding: 12px 18px;">
+        <strong>Interface Web</strong> (porta 8000) consulta SQLite e mostra <strong>dashboard em tempo real</strong> com polling
+      </div>
+    </div>
+  </div>
+
+  <div class="decision" style="margin-top: 14px;">
+    <div class="label">3 Paradigmas no mesmo fluxo</div>
+    <p><strong>Pub/Sub</strong> (Sensor→RabbitMQ) · <strong>RPC HTTP</strong> (Gateway→PreProc, Servidor→Análise) · <strong>TCP Sockets</strong> (Gateway→Servidor)</p>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 13: TESTES & RESILIÊNCIA ===================== -->
+<div class="slide" id="s13">
+  <h2>🧪 Testes & Resiliência</h2>
+  <h3>39 testes automatizados + mecanismos de tolerância a falhas</h3>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="color:var(--accent2)">Testes Automatizados</h4>
+      <div class="grid-2" style="gap:10px;">
+        <div class="card card-accent" style="padding:14px;">
+          <h4 style="color:var(--accent2); font-size:0.85rem;">C# — 14 testes</h4>
+          <ul class="bullets small">
+            <li>Gateway.Tests</li>
+            <li>Servidor.Tests</li>
+            <li>Serialização</li>
+            <li>Validação de mensagens</li>
+          </ul>
+        </div>
+        <div class="card card-green" style="padding:14px;">
+          <h4 style="color:var(--green); font-size:0.85rem;">Python — 25 testes</h4>
+          <ul class="bullets small">
+            <li>Analise.Tests (pytest)</li>
+            <li>Estatísticas</li>
+            <li>Deteção anomalias</li>
+            <li>Previsão</li>
+          </ul>
+        </div>
+      </div>
+
+      <h4 style="color:var(--accent2); margin-top: 14px;">Mecanismos de Resiliência</h4>
+      <table class="tbl">
+        <tr><th>Mecanismo</th><th>Onde</th></tr>
+        <tr><td>Retry + Backoff exponencial</td><td>Chamadas RPC</td></tr>
+        <tr><td>TCP Watchdog (30s)</td><td>Gateway → Servidor</td></tr>
+        <tr><td>AutomaticRecovery</td><td>RabbitMQ client</td></tr>
+        <tr><td>Healthchecks</td><td>Todos os containers</td></tr>
+        <tr><td>Graceful Shutdown</td><td>Serviços Python</td></tr>
+        <tr><td>Log rotation (5MB)</td><td>LogHelper.cs</td></tr>
+      </table>
+    </div>
+    <div>
+      <h4 style="color:var(--accent2)">TCP Watchdog — Reconexão Automática</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Lógica do Watchdog (30 segundos)</span>
+<span class="fn">WatchdogWorker</span>():
+  1. Verificar sensores inativos (>60s)
+  2. Atualizar CSV se houver alterações
+  3. Verificar ligação ao Servidor
+     Se desconectado → <span class="fn">ReconectarAsync</span>()
+       - 20 tentativas máximo
+       - 5 segundos entre tentativas
+       - Sucesso → reiniciar ciclo</div>
+
+      <h4 style="color:var(--accent2); margin-top: 10px;">Graceful Shutdown (Python)</h4>
+      <div class="code-block" style="font-size: 0.62rem;">
+<span class="lang">Python — Sinal de paragem</span>
+<span class="kw">import</span> signal
+
+<span class="kw">def</span> <span class="fn">sinal_paragem</span>(sig, frame):
+    print(<span class="str">"Serviço terminado."</span>)
+    server.<span class="fn">server_close</span>()
+
+signal.<span class="fn">signal</span>(signal.SIGTERM, sinal_paragem)</div>
+
+      <div class="decision" style="margin-top: 14px;">
+        <div class="label">💡 Isolamento de Falhas</div>
+        <p>Se a Análise (Python) falhar com divisão por zero, o Gateway continua a receber dados, o Servidor continua a persistir, e a Interface continua a mostrar o dashboard. <strong>O utilizador nem repara.</strong></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SLIDE 14: CONCLUSÃO ===================== -->
+<div class="slide" id="s14" style="align-items: center; text-align: center; justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(99,102,241,0.12) 0%, var(--bg) 70%);">
+  <h2 style="font-size: 2.5rem; margin-bottom: 20px;">Resumo & Conclusão</h2>
+
+  <div class="grid-3" style="max-width: 900px; margin: 0 auto;">
+    <div class="card card-accent" style="text-align: center;">
+      <div style="font-size: 2rem; margin-bottom: 8px;">🏗️</div>
+      <h4 style="color:var(--accent2)">6 Microserviços</h4>
+      <p>C# + Python em Docker Compose com rede isolada</p>
+    </div>
+    <div class="card card-orange" style="text-align: center;">
+      <div style="font-size: 2rem; margin-bottom: 8px;">📮</div>
+      <h4 style="color:var(--orange)">3 Paradigmas</h4>
+      <p>Pub/Sub (AMQP) · TCP Sockets · RPC HTTP/JSON</p>
+    </div>
+    <div class="card card-green" style="text-align: center;">
+      <div style="font-size: 2rem; margin-bottom: 8px;">🧪</div>
+      <h4 style="color:var(--green)">39 Testes</h4>
+      <p>14 C# (xUnit) + 25 Python (pytest)</p>
+    </div>
+    <div class="card card-cyan" style="text-align: center;">
+      <div style="font-size: 2rem; margin-bottom: 8px;">💾</div>
+      <h4 style="color:var(--cyan)">SQLite ACID</h4>
+      <p>Persistência embebida com thread-safety</p>
+    </div>
+    <div class="card card-pink" style="text-align: center;">
+      <div style="font-size: 2rem; margin-bottom: 8px;">🛡️</div>
+      <h4 style="color:var(--pink)">Resiliência</h4>
+      <p>Watchdog, retry, healthchecks, graceful shutdown</p>
+    </div>
+    <div class="card" style="text-align: center; border-color: var(--green);">
+      <div style="font-size: 2rem; margin-bottom: 8px;">📊</div>
+      <h4 style="color:var(--green)">Análise Inteligente</h4>
+      <p>Z-Score anomalias, regressão linear, previsão</p>
+    </div>
+  </div>
+
+  <div style="margin-top: 30px;">
+    <span class="badge" style="font-size: 1rem; padding: 12px 30px;">
+      docker-compose up --build -d → Sistema completo em 1 comando
+    </span>
+  </div>
+</div>
+
+<!-- ===================== NAVIGATION ===================== -->
+<div class="nav">
+  <button onclick="prevSlide()">◀ Anterior</button>
+  <span class="counter" id="counter">1 / 14</span>
+  <button onclick="nextSlide()">Próximo ▶</button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+
+function showSlide(n) {
+  slides[current].classList.remove('active');
+  current = (n + total) % total;
+  slides[current].classList.add('active');
+  document.getElementById('counter').textContent = `${current + 1} / ${total}`;
+}
+
+function nextSlide() { showSlide(current + 1); }
+function prevSlide() { showSlide(current - 1); }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
+});
+</script>
+</body>
+</html>
