@@ -170,6 +170,22 @@ MONOLITO:                          MICROSERVICOS:
 | **Deploy independente** | Podemos atualizar um servico sem redesenhar tudo | Atualizar o Python da Analise sem mexer no C# do Gateway |
 | **Testabilidade** | Cada servico e testado de forma isolada | 14 testes C# + 25 testes Python = 39 testes no total |
 
+**Porque microservicos e nao monolito neste projeto:**
+
+O padrao monolito seria mais simples de desenvolver no inicio, mas traria problemas significativos num sistema de monitorizacao ambiental distribuido:
+
+1. **Tecnologias mistas obrigatórias**: O projeto exige C# para componentes de alta performance (Sensor, Gateway, Servidor) e Python para analise cientifica (numpy, scipy). Numa arquitetura monolito, teriamos de escolher uma unica linguagem — ou perderiamos a performance do C# ou as bibliotecas cientificas do Python. Com microservicos, cada servico usa a linguagem mais adequada.
+
+2. **Isolamento de falhas critico**: Num sistema de monitorizacao, se o modulo de analise estatistica falhar (ex: divisao por zero num calculo), nao pode derrubar o sistema inteiro. Com microservicos, a Analise pode cair e o Gateway continua a receber dados, o Servidor continua a persistir, e a Interface continua a mostrar o dashboard. O utilizador nem repara.
+
+3. **Escalabilidade granular**: Se amanha tivermos 1000 sensores em vez de 6, podemos duplicar apenas o Servidor (que e o gargalo de persistencia) sem precisar de escalar o Pre-Processamento ou a Analise. Numa arquitetura monolito, teriamos de escalar tudo junto, desperdicando recursos.
+
+4. **Deploy e manutencao independentes**: Podemos atualizar o algoritmo de deteccao de anomalias na Analise (Python) sem redesenhar, recompilar ou redesenhar qualquer componente em C#. Isto e essencial quando a equipa de dados precisa de experimentar novos algoritmos sem afetar a equipa de infraestrutura.
+
+5. **Testabilidade granular**: Podemos testar o Pre-Processamento com 25 testes Python sem precisar de arrancar o Gateway ou o Servidor. Isto torna os testes mais rapidos, mais especificos e mais faceis de automatizar.
+
+6. **Aprendizagem academica**: O projeto e academico — implementar microservicos obriga a compreender comunicacao entre processos, serializacao, orquestracao e padroes de distribuicao que num monolito estariam ocultos.
+
 ### 2.2 Os 6 Microservicos do Projeto
 
 ```
@@ -200,6 +216,23 @@ MONOLITO:                          MICROSERVICOS:
 - **Dependencias**: O Docker Compose garante que o RabbitMQ arranca antes do Gateway
 - **Healthchecks**: Cada servico tem verificacao de saude automatica
 - **Volumes**: Os dados persistem mesmo que os containers sejam reiniciados
+
+**Porque Docker e nao execucao manual ou Kubernetes:**
+
+| Abordagem | Porque nao foi escolhida |
+|-----------|------------------------|
+| **Execucao manual** | O projeto tem 7 processos (6 servicos + RabbitMQ). Arrancar cada um manualmente, com as portas corretas, variaveis de ambiente e ordem de dependencia, e propenso a erros e impossivel de reproduzir fiavelmente entre maquinas |
+| **Kubernetes** | Exagerado para um projeto academico com 6 servicos. Kubernetes exige clusters, pods, services, ingress controllers e curva de aprendizagem enorme. Docker Compose resolve o mesmo problema com 1 ficheiro |
+| **VMs tradicionais** | Pesadas (GBs cada), lentas de arrancar, difficult de partilhar entre membros da equipa. Containers partilham o kernel do host e arrancam em segundos |
+
+**Porque Docker Compose especificamente:**
+- **Reprodutibilidade**: `docker-compose up --build -d` arranca o sistema completo em qualquer maquina com Docker instalado — sem "funciona na minha maquina"
+- **Dependencias automaticas**: O Docker Compose arranca o RabbitMQ antes do Gateway e Espera pelo healthcheck antes de iniciar o proximo servico
+- **Rede interna automatica**: Todos os servicos comunicam por nomes (ex: `rabbitmq`, `pre-processamento`) sem configurar IPs
+- **Logs centralizados**: `docker-compose logs` mostra logs de todos os servicos num unico sitio
+- **Facilidade de demonstracao**: Num projeto academico, o professor pode avaliar o sistema com um unico comando
+
+### 2.4 Comunicacao entre Microservicos
 
 ```
 docker-compose.yml - Rede Interna:
@@ -400,6 +433,18 @@ Sensor                          RabbitMQ                       Gateway
 - RabbitMQ tem routing mais flexivel (topic exchanges com wildcards)
 - RabbitMQ e mais leve (ideal para ambiente Docker)
 
+**Porque RabbitMQ e nao ActiveMQ:**
+- ActiveMQ e mais orientado para enterprise Java — menos suporte nativo para C# e Python
+- RabbitMQ tem melhor desempenho para mensagens pequenas e frequentes (como dados de sensores)
+- RabbitMQ tem interface de gestao web integrada (porta 15672) — util para debug e monitorizacao
+- RabbitMQ tem melhor suporte a Docker e ecossistema de containers
+
+**Porque não usar filas diretamente (ex: Redis Lists, Amazon SQS)?**
+- RabbitMQ suporta exchanges com routing por padroes (topic exchanges) — permits que o Gateway subscreva apenas mensagens de determinados sensores ou zonas
+- Filas simples (como Redis Lists) nao tem routing inteligente — ou consumimos tudo ou precisamos de logica adicional no consumidor
+- RabbitMQ tem acknowledgements (ACK) integrados — garante que mensagens nao se perdem se o Gateway falhar
+- RabbitMQ tem persistencia em disco e durability de exchanges/queues — sobrevive a reinicios
+
 ---
 
 ## 4. SOCKETS TCP — COMUNICACAO DIRETA
@@ -463,6 +508,23 @@ Para cada medicao:                    Para todas as medicoes:
 4. **ACK imediato**: O Servidor responde com `DATA_ACK` pela mesma ligacao
 5. **Multi-gateway**: O Servidor aceita multiplas ligacoes TCP simultaneas
 
+**Porque nao usar HTTP/1.1 persistente (keep-alive)?**
+- HTTP keep-alive mantem a ligacao aberta, mas continua com o overhead dos headers HTTP por cada request/response (~200 bytes por mensagem)
+- Num fluxo de sensores onde cada medicao e pequena (~150 bytes JSON), os headers representam mais de 50% do trafego
+- O HTTP precisa de parsing completo de headers, content-length, transfer-encoding, etc. — logica desnecessaria quando so queremos enviar JSON
+- Com TCP puro, o parsing e trivial: le ate ao `\n` e parse o JSON
+
+**Porque nao usar UDP?**
+- UDP nao garante entrega — se um pacote se perder, a medicao perde-se sem aviso
+- UDP nao garante ordem — mensagens podem chegar fora de sequencia
+- Para dados de monitorizacao ambiental, a fiabilidade e mais importante que a velocidade minima que UDP oferece
+- TCP resolve automaticamente retransmissoes e ordenacao — nao precisamos de implementar nada disso
+
+**Porque nao usar WebSockets?**
+- WebSockets foram pensados para comunicacao browser-servidor — neste caso Gateway e Servidor sao ambos servicos backend
+- WebSockets adicionam uma camada de handshake HTTP upgrade e framing que e desnecessaria
+- TCP puro e mais leve e mais direto para comunicacao entre servicos do mesmo sistema
+
 ### 4.3 O Protocolo Customizado sobre TCP
 
 O projeto define um **protocolo proprio** (application layer protocol) sobre TCP:
@@ -486,6 +548,27 @@ O projeto define um **protocolo proprio** (application layer protocol) sobre TCP
 │  "payload":{},"timestamp":"2025-06-05T10:30:01Z"}\n        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Porque protocolo customizado JSON+newline e nao alternativas?**
+
+| Alternativa | Porque nao foi escolhida |
+|-------------|------------------------|
+| **HTTP completo** | Headers HTTP (~200 bytes) sao overhead desnecessario quando o payload medio e ~150 bytes. Cada medicao teria mais bytes de headers que de dados uteis |
+| **gRPC sobre HTTP/2** | Exige geracao de codigo a partir de ficheiros .proto, framework pesado para C# e Python, e adds complexidade de certificados TLS para comunicacao interna |
+| **Protocolo binario proprio** | Mais rapido mas muito mais complexo de implementar, debugar e manter. JSON e legivel por humanos — util para debug em ambiente academico |
+| **MessagePack / CBOR** | Serializacao binaria mais compacta que JSON, mas perde legibilidade. Para dados de sensores (poucos campos), a diferenca de tamanho e irrelevante |
+
+**Porque JSON e nao binario:**
+- **Legibilidade**: Em debug, podemos ver exatamente o que foi enviado com `netcat` ou `nc`
+- **Simplicidade**: `System.Text.Json` (C#) e `json` (Python) fazem parse automatico — sem necessidade de schemas ou geracao de codigo
+- **Interoperabilidade**: C# e Python comunicam sem problemas — nao ha problemas de endianness ou alinhamento
+- **Compatibilidade**: Se amanha precisarmos de adicionar um campo, basta adicionar ao JSON — nao e necessario recompilar
+
+**Porque delimitador `\n` (newline):**
+- `StreamReader.ReadLine()` em C# e `readline()` em Python fazem parsing automatico ate ao `\n`
+- Nao precisamos de enviar o tamanho da mensagem antecipadamente (como faríamos com protocolos binarios)
+- `\n` e um caractere que nao aparece normalmente em JSON (e escapado como `\n` dentro de strings)
+- Limite de 10MB previne mensagens malformadas de consumir memoria infinita
 
 ### 4.4 Tipos de Mensagem do Protocolo
 
@@ -600,6 +683,25 @@ Existem duas implementacoes principais de RPC:
 │ JSON-RPC sobre HTTP  │ Proto files desatualizados           │
 └──────────────────────┴──────────────────────────────────────┘
 ```
+
+**Porque RPC HTTP/JSON e nao gRPC:**
+
+1. **Simplicidade de implementacao**: HTTP/JSON e trivial em ambas as linguagens — `HttpClient` em C# e `requests` em Python. gRPC exige geracao de codigo a partir de ficheiros .proto, configuracao de canais, e frameworks especificos (`Grpc.Net.Client` em C#, `grpcio` em Python)
+
+2. **Debug e inspecao**: Com HTTP/JSON podemos usar ferramentas universais como `curl`, Postman ou browser para testar endpoints. gRPC usa HTTP/2 binario — precisamos de ferramentas especializadas como `grpcurl`
+
+3. **Legibilidade dos logs**: Quando o sistema falha, podemos ver exatamente o que foi enviado/recebido nos logs. Com Protobuf binario, os logs seriam hexadecimais ilegiveis
+
+4. **Prototipagem rapida**: Num projeto academico, precisamos de testar ideias rapidamente. HTTP/JSON permite alterar o payload sem recompilar — basta mudar o JSON. gRPC exige alterar o .proto, regerar o codigo, e recompilar ambos os lados
+
+5. **Ecossistema de testes**: O pytest (Python) e xUnit (C#) funcionam perfeitamente com HTTP. Testes de integracao com gRPC sao mais complexos de configurar
+
+6. **Ferramentas existentes**: O projeto ja usa `System.Text.Json` em C# e `json` em Python — nao precisamos de adicionar dependencias novas
+
+**Quando gRPC seria preferivel:**
+- Se tivessemos milhares de chamadas RPC por segundo (performance critica)
+- Se precisassemos de streaming bidirecional (ex: sensor a enviar dados em tempo real via RPC)
+- Se o contrato entre servicos fosse muito complexo e precisassemos de tipagem forte
 
 ### 5.3 RPC no Projeto — Onde e Como
 
@@ -756,6 +858,27 @@ proto/
 | Contrato | Implicito (JSON) | Explicito (.proto) |
 | Tipagem | Runtime | Compile-time |
 
+**Porque gRPC seria uma evolucao natural e nao uma substituicao imediata:**
+
+A transicao de HTTP/JSON para gRPC faz sentido como evolucao, nao como substituicao, por estas razoes:
+
+1. **Os ficheiros .proto ja existem**: O projeto ja tem `analise.proto` e `pre_processamento.proto` definidos — apenas estao desatualizados. Atualiza-los e mais rapido que criar do zero
+
+2. **A interface RPC e estavel**: Os endpoints `/rpc/estatisticas`, `/rpc/padroes`, `/rpc/previsao` e `/rpc/uniformizar` ja estao definidos e a funcionar. gRPC apenas mudaria a transport e serializacao, nao a logica de negocio
+
+3. **Beneficio real so aparece em escala**: Com 6 sensores, a diferenca entre JSON (~120 bytes) e Protobuf (~20 bytes) e irrelevante. Se o sistema crescer para 1000+ sensores, a economia de 100 bytes por mensagem x 1000 mensagens/segundo = 100KB/segundo de trafego poupado
+
+4. **Streaming bidirecional e o verdadeiro ganho**: A funcionalidade mais valiosa de gRPC e o streaming — o Sensor podia enviar dados continuamente sem abrir nova ligacao HTTP por cada medicao. Isto eliminaria a necessidade de TCP customizado para o fluxo Sensor→Gateway
+
+5. **Contrato forte evita bugs**: Com gRPC, se o Sensor enviar um campo errado, o erro e detetado em compilacao. Com JSON, so detetamos em runtime (ex: `TypeError: cannot read property 'valor' of undefined`)
+
+6. **O caminho de migracao e claro**: A ordem natural seria: HTTP/JSON (atual) → gRPC para RPCs internas → gRPC para Sensor→Gateway → eventualmente eliminar TCP customizado
+
+**Porque nao migrar agora:**
+- O projeto esta funcional com HTTP/JSON — "if it ain't broke, don't fix it"
+- O overhead de aprendizagem de gRPC para a equipa nao justifica os ganhos com 6 sensores
+- O debug com HTTP/JSON e mais rapido durante o desenvolvimento
+
 ---
 
 ## 7. STACK TECNOLOGICA COMPLETA
@@ -769,6 +892,25 @@ proto/
 - **Tipagem forte**: Erros detetados em compilacao, menos bugs em producao
 - **Async/Await**: Suporte nativo para programacao assincrona
 - **Bibliotecas**: RabbitMQ.Client, System.Net.Sockets, System.Text.Json
+
+**Porque C# para estes componentes especificamente e nao outra linguagem:**
+
+| Componente | Porque C# e a melhor escolha |
+|------------|------------------------------|
+| **Sensor** | Precisa de performance para publicar medicoes continuamente. C# com `RabbitMQ.Client` e mais rapido que Python com `pika`. Tambem precisa de `System.Text.Json` para serializacao rapida |
+| **Gateway** | E o componente mais critico — se falhar, todos os dados se perdem. C# com `HttpClient` e `TcpClient` oferece gestao de erros robusta, timeouts configuraveis, e async/await nativo para nao bloquear enquanto espera de respostas RPC |
+| **Servidor** | Precisa de multithreading para aceitar multiplas Gateways. C# com `TcpListener` e `Thread` e mais eficiente que Python com `socket` (GIL limita concorrencia real) |
+| **SharedProtocol** | Biblioteca partilhada entre todos os componentes C#. C# permite criar um assembly (.dll) que e referenciado por todos — Python nao tem este conceito de biblioteca compilada partilhada |
+
+**Porque nao Java:**
+- Java e mais pesado (JVM) e mais lento de desenvolver que C# para este tipo de projeto
+- .NET 9.0 e mais moderno que Java para programacao assincrona
+- O ecossistema NuGet (C#) e mais focado em redes e web que o Maven (Java)
+
+**Porque nao Go:**
+- Go e excelente para servidores de rede, mas a curva de aprendizagem e maior
+- O ecossistema de bibliotecas para IoT e menos maduro que o de C#
+- Go nao tem o conceito de "solution" que facilita a organizacao do projeto no Visual Studio
 
 **Componentes .NET:**
 
@@ -809,6 +951,31 @@ proto/
 - **Bibliotecas cientificas**: numpy, scipy para estatisticas e deteccao de anomalias
 - **Web frameworks**: Flask/FastAPI para interfaces REST
 - **Simplicidade**: Facil de implementar servicos RPC rapidamente
+
+**Porque Python para estes componentes especificamente e nao outra linguagem:**
+
+| Componente | Porque Python e a melhor escolha |
+|------------|----------------------------------|
+| **Pre-Processamento** | A logica e simples (conversao de unidades, validacao de limites) — Python permite implementar em 50 linhas o que em C# precisaria de 150. Flask e trivial para expor um endpoint RPC |
+| **Analise** | Calculo estatistico e deteccao de anomalias — numpy e scipy sao as bibliotecas de referencia mondial. Em C# precisariamos de Math.NET (menos maduro) ou implementar do zero |
+| **Interface** | Dashboard web simples — Flask/FastAPI com Jinja2 templates. Python e mais rapido para prototipar UIs web que ASP.NET |
+
+**Porque nao R para Analise:**
+- R e especializado em estatistica, mas e mau para servidores web e APIs
+- Python e mais generalista — podemos usar para analise, web, e testes
+- O ecossistema de machine learning (scikit-learn, pandas) e mais maduro em Python
+- A equipa ja conhece Python — R exigiria aprendizagem adicional
+
+**Porque nao Node.js para Interface:**
+- Node.js e bom para I/O assincrono, mas nao tem as bibliotecas cientificas que precisamos
+- Python com Flask e mais simples para prototipar que Express.js
+- O projeto ja usa Python para Pre-Processamento e Analise — manter tudo em Python reduz a complexidade
+
+**A estrategia de linguagens mistas (C# + Python):**
+A escolha de usar C# para infraestrutura e Python para ciencia nao e aleatoria — reflete a especializacao natural:
+- **C#** e excellent para operacoes de rede, multithreading, e IO — exactamente o que Sensor, Gateway e Servidor precisam
+- **Python** e excellent para processamento de dados, estatistica, e web scraping — exactamente o que Pre-Processamento, Analise e Interface precisam
+- A comunicacao entre as duas linguagens e feita via HTTP/JSON — o "lingua franca" que ambos entendem perfeitamente
 
 **Servicos Python:**
 
@@ -873,6 +1040,23 @@ dados/sistemas_distribuidos.db:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+**Porque SQLite e nao PostgreSQL, MySQL ou MongoDB:**
+
+| BD | Porque nao foi escolhida |
+|----|------------------------|
+| **PostgreSQL** | Exige um container separado, configuracao de utilizadores/permissoes, e e excessivo para um projeto academico com poucos dados. A complexidade de gestao (backups, upgrades, logs) nao justifica as vantagens para 6 sensores |
+| **MySQL** | Semelhante ao PostgreSQL — exige servidor dedicado, configuracao de charset, e e mais complexo de configurar em Docker. MySQL e mais lido que SQLite para writes frequentes de sensores |
+| **MongoDB** | NoSQL e bom para dados nao estruturados, mas os nossos dados sao estruturados (medicoes com schema fixo). MongoDB exige container separado e e mais pesado em memoria |
+| **Redis** | Redis e uma cache — nao e indicado para persistencia permanente. Se o container Redis cair, os dados perdem-se |
+| **Filesystem (CSV/JSON)** | Ja usamos CSV para o Gateway, mas nao suporta queries complexas (ex: "medicoes dos ultimos 5 minutos"). SQLite resolve isto com SQL padrao |
+
+**Porque SQLite funciona neste contexto:**
+- **Volume de dados**: 6 sensores x 1 medicao/5s = ~1000 medicoes/hora. SQLite aguenta facilmente 100K+ writes/segundo
+- **Concorrencia**: O Servidor e o unico que escreve — nao ha concorrencia de writes. A Interface le — SQLite suporta multiplos leitores simultaneos
+- **Integridade**: ACID completo — mesmo que o container caia a meio de uma escrita, a BD nao corrompe
+- **Zero configuracao**: Nao precisa de passwords, portas, ou ligacoes de rede. O ficheiro `.db` e auto-contido
+- **Portabilidade**: O ficheiro da BD pode ser copiado, analisado com ferramentas externas (DB Browser for SQLite), ou partilhado entre investigadores
+
 ### 7.4 Mensagens Serializadas — SharedProtocol
 
 O projeto define uma **biblioteca partilhada** (`SharedProtocol`) usada por todos os componentes C# para garantir compatibilidade nas mensagens:
@@ -898,6 +1082,23 @@ Mensagem.CriarData("sensor-01", "temperatura", 23.5)
     ↓ Enviar via TCP/RabbitMQ
 {"tipo":"DATA_ACK","sensor_id":"sensor-01","payload":{},"timestamp":"..."}
 ```
+
+**Porque SharedProtocol como biblioteca partilhada e nao copiar codigo:**
+
+1. **Consistencia**: Se amanha alterarmos o formato da Mensagem (ex: adicionar campo `versao`), so alteramos `Mensagem.cs` e todos os componentes (Sensor, Gateway, Servidor) recebem a atualizacao automaticamente ao recompilar
+
+2. **DRY (Don't Repeat Yourself)**: Sem SharedProtocol, teriamos de copiar a classe `Mensagem` e `MensagemSerializer` para cada projeto — se esquecessemos de atualizar um, teriamos bugs de serializacao/deserializacao silenciosos
+
+3. **Tipagem compartilhada**: O `TipoMensagem` (constantes como "DATA", "REGISTER", "HEARTBEAT") e o `CodigoErro` estao definidos uma vez e usados por todos — evita "magic strings" espalhadas pelo codigo
+
+4. **Testabilidade**: Podemos testar a serializacao/deserializacao uma vez no SharedProtocol, e saber que todos os componentes usam a mesma logica
+
+5. **Organizacao do projeto**: SharedProtocol e um projeto .NET separado na solution — facilita a gestao no Visual Studio e a referencia entre projetos
+
+**Porque nao usar NuGet packages para partilhar:**
+- O SharedProtocol e especifico deste projeto — nao faz sentido publicar como pacote
+- Referenciar diretamente o projeto (.csproj reference) e mais simples que configurar um feed NuGet privado
+- Permite desenvolvimento e debug em tempo real — alteracoes no SharedProtocol refletem-se imediatamente
 
 ---
 
@@ -1068,6 +1269,21 @@ O padrao Pub/Sub desacopla produtores de consumidores:
 - Nenhum consumidor precisa de saber dos outros
 - O producer nao precisa de saber quantos consumidores existem
 
+**Porque Pub/Sub e nao Request-Response para Sensor→Gateway:**
+
+1. **Desacoplamento temporal**: O Sensor nao precisa de saber se o Gateway esta disponivel. Se o Gateway estiver offline, o RabbitMQ guarda a mensagem (persistente) e entrega quando ele voltar. Com Request-Response, o Sensor teria de esperar ou falhar
+
+2. **Escalabilidade**: Se amanha tivermos 2 Gateways (load balancing), o Sensor nao precisa de mudar — ambas recebem as mesmas mensagens via topic exchange. Com Request-Response, teriamos de configurar o Sensor para enviar para 2 endpoints
+
+3. **Um-para-muitos**: Uma medicao pode ser consumida pelo Gateway (para processamento), por um servico de auditoria (para logs), e por um servico de alertas (para detetar anomalias em tempo real). Pub/Sub permite isto naturalmente com bindings differentes
+
+4. **Resiliencia**: Se o Gateway falhar a processar uma mensagem, o RabbitMQ pode reenvia-la para outro consumer (se houver). Com Request-Response, a mensagem perde-se
+
+**Porque nao usar Pub/Sub para tudo:**
+- Pub/Sub nao tem garantia de resposta — o Sensor nao sabe se a medicao foi processada
+- Para operacoes que precisam de resposta (ex: "valida este dado"), Request-Response e mais natural
+- O projeto usa ambos: Pub/Sub para dados (Sensor→Gateway) e Request-Response para operacoes (Gateway→PreProc, Servidor→Analise)
+
 ### 10.2 Padrao Request-Response sobre TCP
 
 O projeto implementa um padrao Request-Response proprio sobre TCP:
@@ -1080,6 +1296,21 @@ O projeto implementa um padrao Request-Response proprio sobre TCP:
 - Ligacao persistente (mais rapido)
 - Protocolo customizado (mais flexivel)
 
+**Porque Request-Response sobre TCP proprio e nao HTTP ou AMQP:**
+
+1. **Para que serve este padrao**: O Gateway precisa de enviar dados ao Servidor e receber confirmacao (DATA_ACK). Isto e naturalmente Request-Response — envio um pedido e espero uma resposta
+
+2. **Porque nao usar HTTP para isto**: Ja explicado na Sec 4.2 — HTTP adiciona ~200 bytes de headers por cada medicao. Com TCP puro, o overhead e minimo
+
+3. **Porque nao usar AMQP Request-Response**: O RabbitMQ suporta RPC sobre AMQP (com reply-to queue), mas seria overkill — o Servidor ja esta ligado ao Gateway via TCP, nao precisamos de adicionar mais um broker no meio
+
+4. **Porque e proprio e nao protocolo standard**: Nao existe um protocolo standard simples para "enviar JSON e receber ACK" — HTTP e demasiado pesado, AMQP e complexo, e gRPC e pesado de configurar. O protocolo proprio resolve exatamente o que precisamos com 20 linhas de codigo
+
+**Quando este padrao NAO e adequado:**
+- Se precisarmos de streaming (Sensor a enviar dados continuamente) — ai TCP puro sem Request-Response e melhor
+- Se precisarmos de multicast — ai Pub/Sub e mais adequado
+- Se precisarmos de garantia de entrega com retry automatico — ai AMQP com dead-letter queues e melhor
+
 ### 10.3 Healthchecks
 
 Todos os servicos Docker tem healthchecks:
@@ -1091,6 +1322,23 @@ Todos os servicos Docker tem healthchecks:
 - O Docker so marca um servico como "healthy" se o healthcheck passar
 - Outros servicos podem dependir do estado "healthy"
 - Permite monitorizacao automatica
+
+**Porque implementar healthchecks em vez de apenas contar processos:**
+
+1. **Deteccao de deadlocks**: Um processo pode estar "a correr" mas bloqueado (deadlock). O processo nao morre, mas nao responde. Um healthcheck que testa se o servico responde a pedidos deteta esta situacao
+
+2. **Dependencias criticas**: O Gateway pode estar a correr mas o RabbitMQ pode ter caido. Um healthcheck que verifica a ligacao ao RabbitMQ deteta o problema — o Docker pode entao reiniciar o Gateway
+
+3. **Orquestracao**: O Docker Compose com `depends_on` + `condition: service_healthy` garante que o Gateway so arranca depois do RabbitMQ estar realmente funcional (nao apenas "a correr")
+
+4. **Monitorizacao**: `docker-compose ps` mostra o estado de saude de cada servico — facilita a debug em producao
+
+5. **Alertas**: Em producao, healthchecks podem alimentar sistemas de alerta (PagerDuty, Slack) quando um servico fica "unhealthy"
+
+**Porque nao usar Kubernetes probes:**
+- Kubernetes tem liveness, readiness, e startup probes — sao mais sofisticados
+- Mas para 6 servicos em Docker Compose, healthchecks simples sao suficientes
+- Kubernetes probes exigem configuracao adicional que nao justifica a complexidade
 
 ### 10.4 Graceful Shutdown
 
@@ -1107,6 +1355,23 @@ O `LogHelper` implementa rotacao de logs:
 - Quando o ficheiro atinge o limite, cria um novo
 - Previne ocupacao excessiva de disco
 
+**Porque logs com rotacao e nao apenas Console.WriteLine:**
+
+1. **Persistencia**: `Console.WriteLine` vai para o stdout — se o container reiniciar, os logs perdem-se. Logs em ficheiro persistem mesmo apos reinicio
+
+2. **Gestao de disco**: Sem rotacao, um sistema com 6 sensores a logar continuamente enche o disco em dias. A rotacao garante que so guardamos os ultimos N MB de logs
+
+3. **Debug**: Em producao, podemos analisar logs historicos para perceber porque e que o sistema falhou ha 3 horas. Com stdout, so temos os ultimos logs do container
+
+4. **Rotacao e nao retencao ilimitada**: Manter logs infinitos e impossivel — o disco encha. Rotacao de 5MB e um equilibrio entre ter logs suficientes para debug e nao encher o disco
+
+5. **Porque 5MB**: Cada log tem ~100 bytes. 5MB = ~50.000 linhas de log — suficiente para varias horas de operacao com 6 sensores
+
+**Porque nao usar Serilog ou NLog:**
+- Serilog e NLog sao frameworks de logging muito completos, mas excessivos para este projeto
+- O `LogHelper` customizado tem ~50 linhas — suficiente para rotacao basica
+- Menos dependencias = container mais leve = arranque mais rapido
+
 ### 10.6 Variaveis de Ambiente
 
 Todos os componentes suportam configuracao via env vars:
@@ -1121,6 +1386,27 @@ Todos os componentes suportam configuracao via env vars:
 | `PRE_PROCESSAMENTO_HOST` | 127.0.0.1 | Host do Pre-Processamento |
 | `ANALISE_HOST` | 127.0.0.1 | Host da Analise |
 | `ANALISE_RPC_URL` | http://127.0.0.1:6001 | URL base do RPC de Analise |
+
+**Porque variaveis de ambiente e nao ficheiros de configuracao:**
+
+1. **Padrao Docker**: Containers Docker sao projetados para receber configuracao via env vars — e o metodo recomendado pela comunidade Docker
+
+2. **Seguranca**: Variaveis de ambiente nao ficam escritas em ficheiros de configuracao que podem ser commitados acidentalmente no Git. Evita expor secrets (embora neste projeto nao haja auth)
+
+3. **Flexibilidade**: Podemos alterar a configuracao sem recompilar o codigo — basta mudar a variavel de ambiente no `docker-compose.yml`
+
+4. **Overrides**: Podemos sobrescrever variaveis por container — o Gateway pode usar um RabbitMQ host diferente do Sensor, se necessario
+
+5. **Testes**: Em testes, podemos definir variaveis de ambiente diferentes (ex: `RABBITMQ_HOST=localhost`) sem alterar o codigo
+
+**Porque nao usar ficheiros appsettings.json:**
+- appsettings.json e o padrao .NET, mas e menos flexivel para Docker
+- Variaveis de ambiente sobrescrevem appsettings.json — nao ha conflito
+- Para componentes Python, env vars e o padrao (nao usamos appsettings)
+
+**Porque nao usar Consul ou Vault:**
+- Consul e Vault sao sistemas de gestao de configuracao para producao — sao excessivos para um projeto academico
+- Variaveis de ambiente resolvem o mesmo problema com zero configuracao adicional
 
 ---
 
